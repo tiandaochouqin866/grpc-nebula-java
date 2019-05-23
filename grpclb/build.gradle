@@ -1,0 +1,24 @@
+description = "gRPC: GRPCLB LoadBalancer plugin"
+
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies { classpath libraries.protobuf_plugin }
+}
+
+dependencies {
+    compile project(':orientsec-grpc-core'),
+            project(':orientsec-grpc-protobuf'),
+            project(':orientsec-grpc-stub'),
+            libraries.protobuf
+    compile (libraries.protobuf_util) {
+        // prefer 20.0 from libraries instead of 19.0
+        exclude group: 'com.google.guava', module: 'guava'
+    }
+    compileOnly libraries.javax_annotation
+    testCompile libraries.truth,
+            project(':orientsec-grpc-core').sourceSets.test.output
+}
+
+configureProtoCompilation()
