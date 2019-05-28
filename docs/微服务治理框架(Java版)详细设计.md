@@ -265,7 +265,7 @@ b. 连接数控制流量控制：
 ### 10. 实现客户端对路由规则的解析方法，用来过滤服务端列表
 - 原理分析
 
-![路由规则判断流程图](https://raw.githubusercontent.com/msgf/msgf/master/images/routing-rules-judge-flow-diagram.png)
+![路由规则判断流程图](https://raw.githubusercontent.com/grpc-nebula/grpc-nebula/master/images/routing-rules-judge-flow-diagram.png)
 
 - 实现思路
 
