@@ -16,10 +16,10 @@
 
 package io.grpc;
 
-import java.util.Collections;
-import java.util.List;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.ThreadSafe;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Registry of services and their methods used by servers to dispatching incoming calls.
@@ -59,4 +59,13 @@ public abstract class HandlerRegistry {
     return lookupMethod(methodName, null);
   }
 
+
+  /**
+   * 重新设置服务和方法
+   *
+   * @author sxp
+   * @since 2019/7/16
+   */
+  public void resetServicesAndMethods(List<ServerServiceDefinition> newServices) {
+  }
 }

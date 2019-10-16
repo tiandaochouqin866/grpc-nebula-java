@@ -58,6 +58,7 @@ public class ServiceProvider {
   private long timestamp;
   private String grpc;
   private URL url;
+  private boolean master = true;
   /**
    * 获取URL
    *
@@ -91,7 +92,7 @@ public class ServiceProvider {
     this.side = RegistryConstants.PROVIDER_SIDE;
   }
 
-  public ServiceProvider fromURL(URL url){
+  public ServiceProvider fromURL(URL url, Object currentMasterValue,Object currentGroupValue){
     this.url = url;
     this.host = url.getIp();
     this.port = url.getPort(80);
@@ -107,7 +108,15 @@ public class ServiceProvider {
     }
     String deprecated = url.getParameter(GlobalConstants.Provider.Key.DEPRECATED);
     this.deprecated = "true".compareToIgnoreCase(deprecated) == 0 ? true: false;
-
+    this.master = Boolean.valueOf(url.getParameter(GlobalConstants.Provider.Key.MASTER));
+    if (currentMasterValue != null && (currentMasterValue instanceof Boolean)) {
+      this.master = ((Boolean) currentMasterValue).booleanValue();
+    }
+    this.group = url.getParameter(GlobalConstants.Provider.Key.GROUP);
+    if(currentGroupValue != null && (currentGroupValue instanceof String)){
+      this.group = currentGroupValue.toString();
+    }
+    this.application = url.getParameter(GlobalConstants.Provider.Key.APPLICATION);
 
     return this;
   }
@@ -672,5 +681,21 @@ public class ServiceProvider {
    */
   public void setGrpc(String grpc) {
     this.grpc = grpc;
+  }
+
+  /**
+   * 获取master值
+   * @return
+   */
+  public boolean getMaster() {
+    return master;
+  }
+
+  /**
+   * 设置master值
+   * @param master
+   */
+  public void setMaster(boolean master) {
+    this.master = master;
   }
 }

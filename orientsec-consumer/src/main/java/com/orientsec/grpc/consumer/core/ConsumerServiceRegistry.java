@@ -66,13 +66,6 @@ public interface ConsumerServiceRegistry {
 
   /**
    * 初始化注册中心连接参数
-   * @param registryIP  注册中心IP
-   * @param registryPort  注册中心Port
-   */
-  ConsumerServiceRegistry forHost(String registryIP, int registryPort);
-
-  /**
-   * 初始化注册中心连接参数
    * @param targetUrl  注册中心地址列表
    */
   ConsumerServiceRegistry forTarget(URL targetUrl);

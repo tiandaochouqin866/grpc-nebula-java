@@ -1,5 +1,15 @@
 buildscript {
-    repositories { jcenter() }
+    repositories {
+        mavenLocal()
+        mavenCentral()
+        maven { url "https://plugins.gradle.org/m2/" }
+        maven { url INTRANET_MAVEN_URL
+            credentials {
+                username INTRANET_MAVEN_USERNAME
+                password INTRANET_MAVEN_PASSWORD
+            }
+        }
+    }
     dependencies { classpath 'com.github.jengelman.gradle.plugins:shadow:2.0.4' }
 }
 
@@ -24,10 +34,8 @@ artifacts { // We want uploadArchives to handle the shadowJar; we don't care abo
     // uploadShadow
     archives shadowJar }
 
-jar {
-    // Must use a different classifier to avoid conflicting with shadowJar
-    classifier = 'original'
-}
+jar { // Must use a different classifier to avoid conflicting with shadowJar
+    classifier = 'original' }
 configurations.archives.artifacts.removeAll { it.classifier == "original" }
 
 shadowJar {

@@ -171,11 +171,6 @@ public class Constants {
   public static final String DEFAULT_CLUSTER = "failover";
 
   /**
-   * 默认目录
-   */
-  public static final String DEFAULT_DIRECTORY = "dubbo";
-
-  /**
    * 默认负载均衡算法
    */
   public static final String DEFAULT_LOADBALANCE = "random";
@@ -1064,11 +1059,7 @@ public class Constants {
 
   public static final String DEFAULT_SCRIPT_TYPE_KEY = "javascript";
 
-  public static final String STUB_EVENT_KEY = "dubbo.stub.event";
-
   public static final boolean DEFAULT_STUB_EVENT = false;
-
-  public static final String STUB_EVENT_METHODS_KEY = "dubbo.stub.event.methods";
 
   /**
    * invocation attachment属性中如果有此值，则选择mock invoker

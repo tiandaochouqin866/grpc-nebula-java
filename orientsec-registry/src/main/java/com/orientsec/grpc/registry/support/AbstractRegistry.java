@@ -23,33 +23,19 @@ import com.orientsec.grpc.registry.NotifyListener;
 import com.orientsec.grpc.registry.Registry;
 import com.orientsec.grpc.registry.common.Constants;
 import com.orientsec.grpc.registry.common.URL;
-import com.orientsec.grpc.registry.common.utils.ConcurrentHashSet;
-import com.orientsec.grpc.registry.common.utils.ConfigUtils;
-import com.orientsec.grpc.registry.common.utils.NamedThreadFactory;
+import com.orientsec.grpc.common.collect.ConcurrentHashSet;
 import com.orientsec.grpc.registry.common.utils.UrlUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.RandomAccessFile;
-import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -68,20 +54,6 @@ public abstract class AbstractRegistry implements Registry {
 
   private URL registryUrl;
 
-  // 本地磁盘缓存文件
-  private File file;
-
-  // 本地磁盘缓存，其中特殊的key值.registies记录注册中心列表，其它均为notified服务提供者列表
-  private final Properties properties = new Properties();
-
-  // 文件缓存定时写入
-  private final ExecutorService registryCacheExecutor = Executors.newFixedThreadPool(1, new NamedThreadFactory("GrpcSaveRegistryCache", true));
-
-  //是否是同步保存文件
-  private final boolean syncSaveFile;
-
-  private final AtomicLong lastCacheChanged = new AtomicLong();
-
   private final Set<URL> registered = new ConcurrentHashSet<URL>();
 
   private final ConcurrentMap<URL, Set<NotifyListener>> subscribed = new ConcurrentHashMap<URL, Set<NotifyListener>>();
@@ -90,25 +62,6 @@ public abstract class AbstractRegistry implements Registry {
 
   public AbstractRegistry(URL url) {
     setUrl(url);
-    // 启动文件保存定时器
-    syncSaveFile = url.getParameter(Constants.REGISTRY_FILESAVE_SYNC_KEY, false);
-
-    // 增加时间戳，解决同一个机器上运行多个服务时文件冲突
-    String defaultFileName = System.getProperty("user.home") + "/.grpc/grpc-registry-" + url.getHost();
-    defaultFileName = defaultFileName + "-" + System.currentTimeMillis() + ".cache";
-
-    String filename = url.getParameter(Constants.FILE_KEY, defaultFileName);
-    File file = null;
-    if (ConfigUtils.isNotEmpty(filename)) {
-      file = new File(filename);
-      if (!file.exists() && file.getParentFile() != null && !file.getParentFile().exists()) {
-        if (!file.getParentFile().mkdirs()) {
-          throw new IllegalArgumentException("Invalid registry store file " + file + ", cause: Failed to create directory " + file.getParentFile() + "!");
-        }
-      }
-    }
-    this.file = file;
-    loadProperties();
     notify(url.getBackupUrls());
   }
 
@@ -133,141 +86,6 @@ public abstract class AbstractRegistry implements Registry {
 
   public Map<URL, Map<String, List<URL>>> getNotified() {
     return notified;
-  }
-
-  public File getCacheFile() {
-    return file;
-  }
-
-  public Properties getCacheProperties() {
-    return properties;
-  }
-
-  public AtomicLong getLastCacheChanged() {
-    return lastCacheChanged;
-  }
-
-
-  private class SaveProperties implements Runnable {
-    private long version;
-
-    private SaveProperties(long version) {
-      this.version = version;
-    }
-
-    public void run() {
-      doSaveProperties(version);
-    }
-  }
-
-  public void doSaveProperties(long version) {
-    if (version < lastCacheChanged.get()) {
-      return;
-    }
-    if (file == null) {
-      return;
-    }
-    Properties newProperties = new Properties();
-    // 保存之前先读取一遍，防止多个注册中心之间冲突
-    InputStream in = null;
-    try {
-      if (file.exists()) {
-        in = new FileInputStream(file);
-        newProperties.load(in);
-      }
-    } catch (Throwable e) {
-      logger.warn("Failed to load registry store file, cause: " + e.getMessage(), e);
-    } finally {
-      if (in != null) {
-        try {
-          in.close();
-        } catch (IOException e) {
-          logger.warn(e.getMessage(), e);
-        }
-      }
-    }
-    // 保存
-    try {
-      newProperties.putAll(properties);
-      File lockfile = new File(file.getAbsolutePath() + ".lock");
-      if (!lockfile.exists()) {
-        lockfile.createNewFile();
-      }
-      RandomAccessFile raf = new RandomAccessFile(lockfile, "rw");
-      try {
-        FileChannel channel = raf.getChannel();
-        try {
-          FileLock lock = channel.tryLock();
-          if (lock == null) {
-            throw new IOException("Can not lock the registry cache file " + file.getAbsolutePath() + ", ignore and retry later, maybe multi java process use the file, please config: dubbo.registry.file=xxx.properties");
-          }
-          // 保存
-          try {
-            if (!file.exists()) {
-              file.createNewFile();
-            }
-            FileOutputStream outputFile = new FileOutputStream(file);
-            try {
-              newProperties.store(outputFile, "Dubbo Registry Cache");
-            } finally {
-              outputFile.close();
-            }
-          } finally {
-            lock.release();
-          }
-        } finally {
-          channel.close();
-        }
-      } finally {
-        raf.close();
-      }
-    } catch (Throwable e) {
-      if (version < lastCacheChanged.get()) {
-        return;
-      } else {
-        registryCacheExecutor.execute(new SaveProperties(lastCacheChanged.incrementAndGet()));
-      }
-      logger.warn("Failed to save registry store file, cause: " + e.getMessage(), e);
-    }
-  }
-
-  private void loadProperties() {
-    if (file != null && file.exists()) {
-      InputStream in = null;
-      try {
-        in = new FileInputStream(file);
-        properties.load(in);
-        logger.debug("Load registry store file " + file + ", data: " + properties);
-      } catch (Throwable e) {
-        logger.warn("Failed to load registry store file " + file, e);
-      } finally {
-        if (in != null) {
-          try {
-            in.close();
-          } catch (IOException e) {
-            logger.warn(e.getMessage(), e);
-          }
-        }
-      }
-    }
-  }
-
-  public List<URL> getCacheUrls(URL url) {
-    for (Map.Entry<Object, Object> entry : properties.entrySet()) {
-      String key = (String) entry.getKey();
-      String value = (String) entry.getValue();
-      if (key != null && key.length() > 0 && key.equals(url.getServiceKey())
-              && (Character.isLetter(key.charAt(0)) || key.charAt(0) == '_')
-              && value != null && value.length() > 0) {
-        String[] arr = value.trim().split(URL_SPLIT);
-        List<URL> urls = new ArrayList<URL>();
-        for (String u : arr) {
-          urls.add(URL.valueOf(u));
-        }
-        return urls;
-      }
-    }
-    return null;
   }
 
   public List<URL> lookup(URL url) {
@@ -349,27 +167,6 @@ public abstract class AbstractRegistry implements Registry {
 
   protected void recover() throws Exception {
     // 这个方法理论上不会调用到
-    /*
-    // register
-    Set<URL> recoverRegistered = new HashSet<URL>(getRegistered());
-    if (!recoverRegistered.isEmpty()) {
-      logger.debug("Recover register url " + recoverRegistered);
-      for (URL url : recoverRegistered) {
-        register(url);
-      }
-    }
-    // subscribe
-    Map<URL, Set<NotifyListener>> recoverSubscribed = new HashMap<URL, Set<NotifyListener>>(getSubscribed());
-    if (!recoverSubscribed.isEmpty()) {
-      logger.debug("Recover subscribe url " + recoverSubscribed.keySet());
-      for (Map.Entry<URL, Set<NotifyListener>> entry : recoverSubscribed.entrySet()) {
-        URL url = entry.getKey();
-        for (NotifyListener listener : entry.getValue()) {
-          subscribe(url, listener);
-        }
-      }
-    }
-    */
   }
 
   protected static List<URL> filterEmpty(URL url, List<URL> urls) {
@@ -441,38 +238,7 @@ public abstract class AbstractRegistry implements Registry {
       String category = entry.getKey();
       List<URL> categoryList = entry.getValue();
       categoryNotified.put(category, categoryList);
-      saveProperties(url);
       listener.notify(categoryList);
-    }
-  }
-
-  private void saveProperties(URL url) {
-    if (file == null) {
-      return;
-    }
-
-    try {
-      StringBuilder buf = new StringBuilder();
-      Map<String, List<URL>> categoryNotified = notified.get(url);
-      if (categoryNotified != null) {
-        for (List<URL> us : categoryNotified.values()) {
-          for (URL u : us) {
-            if (buf.length() > 0) {
-              buf.append(URL_SEPARATOR);
-            }
-            buf.append(u.toFullString());
-          }
-        }
-      }
-      properties.setProperty(url.getServiceKey(), buf.toString());
-      long version = lastCacheChanged.incrementAndGet();
-      if (syncSaveFile) {
-        doSaveProperties(version);
-      } else {
-        registryCacheExecutor.execute(new SaveProperties(version));
-      }
-    } catch (Throwable t) {
-      logger.warn(t.getMessage(), t);
     }
   }
 

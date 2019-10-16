@@ -21,6 +21,8 @@ package com.orientsec.grpc.consumer.internal;
 import com.orientsec.grpc.consumer.watch.ConsumerListener;
 import com.orientsec.grpc.registry.common.URL;
 import com.orientsec.grpc.registry.common.UrlIpComparator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.List;
@@ -32,12 +34,17 @@ import java.util.List;
  * @since 2019/1/30
  */
 public class ConfiguratorsListener extends AbstractListener implements ConsumerListener {
+  private static final Logger logger = LoggerFactory.getLogger(ConfiguratorsListener.class);
+
   private ProviderWeightHandler weightHandler;
   private ProviderDeprecatedHandler deprecatedHandler;
   private LoadbalanceModeHandler modeHandler;
   private LoadbalanceHandler lbHandler;
   private ServiceVersionHandler versionHandler;
   private ConsumerRequestsHandler requestsHandler;
+  private ProviderMasterHandler masterHandler;
+  private ProviderGroupHandler groupHandler;
+  private ConsumerGroupHandler consumerGroupHandler;
 
   public ConfiguratorsListener() {
   }
@@ -52,6 +59,18 @@ public class ConfiguratorsListener extends AbstractListener implements ConsumerL
       weightHandler = new ProviderWeightHandler(zookeeperNameResolver);
     }
     weightHandler.notify(urls);
+
+    //对服务端master参数进行处理
+    if(masterHandler == null){
+      masterHandler = new ProviderMasterHandler(zookeeperNameResolver);
+    }
+    masterHandler.notify(urls);
+
+    //对服务端group参数进行处理
+    if(groupHandler == null){
+      groupHandler = new ProviderGroupHandler(zookeeperNameResolver);
+    }
+    groupHandler.notify(urls);
 
     // 监听服务端是否过时 deprecated
     if (deprecatedHandler == null) {
@@ -82,5 +101,12 @@ public class ConfiguratorsListener extends AbstractListener implements ConsumerL
       requestsHandler = new ConsumerRequestsHandler(zookeeperNameResolver);
     }
     requestsHandler.notify(urls);
+
+    //监听客户端GROUP变化
+    if(consumerGroupHandler == null){
+      consumerGroupHandler = new ConsumerGroupHandler(zookeeperNameResolver);
+    }
+    consumerGroupHandler.notify(urls);
+
   }
 }

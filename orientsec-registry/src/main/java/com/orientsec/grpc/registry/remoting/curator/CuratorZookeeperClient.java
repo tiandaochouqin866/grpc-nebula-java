@@ -20,6 +20,8 @@
 package com.orientsec.grpc.registry.remoting.curator;
 
 import com.orientsec.grpc.common.constant.GlobalConstants;
+import com.orientsec.grpc.common.model.RegistryCenter;
+import com.orientsec.grpc.common.resource.AllRegisterCenterConf;
 import com.orientsec.grpc.common.resource.SystemConfig;
 import com.orientsec.grpc.common.util.PropertiesUtils;
 import com.orientsec.grpc.registry.common.URL;
@@ -36,12 +38,14 @@ import org.apache.curator.retry.RetryUntilElapsed;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentMap;
 
 
 /**
@@ -55,6 +59,11 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorWatch
   public CuratorZookeeperClient(URL url) {
     super(url);
 
+    String urlId = url.getId();
+    if (StringUtils.isEmpty(url.getId())) {
+      throw new IllegalStateException("注册中心url的唯一标识不能为空");
+    }
+
     // zk断线重连时，每3秒重连一次，直到连接上zk，或者超过最大重连时间才停止
     int maxElapsedTimeMs = getMaxElapsedTimeMs();
     int sleepMsBetweenRetries = 3 * 1000;
@@ -65,11 +74,14 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorWatch
             .connectionTimeoutMs(getConnectionTimeoutMs())
             .sessionTimeoutMs(getSessionTimeoutMs());
 
-    String userPassword = ZkACLProvider.getUserPassword();
+    ConcurrentMap<String, RegistryCenter> allConfMap = AllRegisterCenterConf.getAllConfMap();
+    RegistryCenter rc = allConfMap.get(urlId);
+    String userPassword = rc.getAclUserPwd();
+
     if (StringUtils.isNotEmpty(userPassword)) {
-      byte[] auth = ZkACLProvider.getUserPassword().getBytes(StandardCharsets.UTF_8);
+      byte[] auth = userPassword.getBytes(StandardCharsets.UTF_8);
       String scheme = ZkACLProvider.getScheme();
-      builder = builder.aclProvider(new ZkACLProvider()).authorization(scheme, auth);
+      builder = builder.aclProvider(new ZkACLProvider(userPassword)).authorization(scheme, auth);
     }
 
     client = builder.build();
@@ -101,9 +113,12 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorWatch
     return value;
   }
 
+  /**
+   * @since 2019-06-26 modify by sxp 为了消除curator框架的警告日志，将默认连接超时时间调整为4秒
+   */
   private static int getConnectionTimeoutMs() {
     String key = GlobalConstants.REGISTRY_CONNECTIONTIMEOUT;
-    int defaultValue = 5000;
+    int defaultValue = 4000;
     Properties properties = SystemConfig.getProperties();
 
     int value = PropertiesUtils.getValidIntegerValue(properties, key, defaultValue);
@@ -169,6 +184,15 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorWatch
       return new String(client.getData().forPath(path));
     } catch (KeeperException.NoNodeException e) {
       return null;
+    } catch (Exception e) {
+      throw new IllegalStateException(e.getMessage(), e);
+    }
+  }
+
+  public boolean isNodeExists(String path){
+    try {
+      Stat stat = client.checkExists().forPath(path);
+      return (stat != null) ? true : false;
     } catch (Exception e) {
       throw new IllegalStateException(e.getMessage(), e);
     }

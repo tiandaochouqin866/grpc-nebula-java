@@ -23,12 +23,12 @@ import com.orientsec.grpc.common.enums.LoadBalanceMode;
 import com.orientsec.grpc.common.util.MathUtils;
 import com.orientsec.grpc.common.util.PropertiesUtils;
 import com.orientsec.grpc.common.util.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * 系统配置信息
@@ -37,7 +37,7 @@ import java.util.logging.Logger;
  * @since V1.0 2017/3/27
  */
 public final class SystemConfig {
-  private static final Logger log = Logger.getLogger(SystemConfig.class.getName());
+  private static final Logger log = LoggerFactory.getLogger(SystemConfig.class);
 
   /**
    * 系统配置文件中的信息
@@ -62,10 +62,6 @@ public final class SystemConfig {
    */
   private static int providerMaxConnetions = GlobalConstants.Provider.DEFAULT_CONNECTIONS_NUM;
 
-  /**
-   * 服务注册根路径
-   */
-  private static String serviceRootPath;
 
   // 只在加载该类时执行一次
   static {
@@ -73,7 +69,6 @@ public final class SystemConfig {
     initSwitchProperties();
     initLoadBalanceModeMap();
     initMaxConnections();
-    initServiceRootPath();
   }
 
   /**
@@ -86,7 +81,7 @@ public final class SystemConfig {
     try {
       properties = PropertiesUtils.getProperties(GlobalConstants.CONFIG_FILE_PATH);
     } catch (Exception e) {
-      log.log(Level.SEVERE, e.getMessage());
+      log.error(e.getMessage(), e);
     }
     appendSomeProperties();
     showImportInfornation();
@@ -139,6 +134,8 @@ public final class SystemConfig {
     }
 
     String[] keys = {GlobalConstants.COMMON_APPLICATION,
+            GlobalConstants.COMMON_PROJECT,
+            GlobalConstants.COMMON_OWNER,
             GlobalConstants.REGISTRY_CENTTER_ADDRESS};
     String value;
     StringBuilder sb = new StringBuilder();
@@ -158,7 +155,7 @@ public final class SystemConfig {
 
     sb.append("************************************************");
 
-    log.log(Level.INFO, sb.toString());
+    log.info(sb.toString());
   }
 
   /**
@@ -205,29 +202,6 @@ public final class SystemConfig {
     }
   }
 
-  /**
-   * 初始化服务注册根路径
-   *
-   * @author sxp
-   * @since 2018/12/4
-   */
-  private static void initServiceRootPath() {
-    // 默认值
-    serviceRootPath = "/Application/grpc";
-
-    if (properties != null && properties.containsKey(GlobalConstants.COMMON_ROOT)) {
-      String value = properties.getProperty(GlobalConstants.COMMON_ROOT);
-      if (value != null) {
-        value = value.trim();
-      }
-      if (value.endsWith("/")) {
-        value = value.substring(0, value.length() - 1);
-      }
-      if (StringUtils.isNotEmpty(value)) {
-        serviceRootPath = value;
-      }
-    }
-  }
 
   /**
    * 获取服务端当前允许的最大连接数
@@ -244,7 +218,5 @@ public final class SystemConfig {
     SystemConfig.providerMaxConnetions = providerMaxConnetions;
   }
 
-  public static String getServiceRootPath() {
-    return serviceRootPath;
-  }
+
 }

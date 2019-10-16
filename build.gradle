@@ -3,6 +3,12 @@ buildscript {
         mavenLocal()
         mavenCentral()
         maven { url "https://plugins.gradle.org/m2/" }
+        maven { url INTRANET_MAVEN_URL
+            credentials {
+                username INTRANET_MAVEN_USERNAME
+                password INTRANET_MAVEN_PASSWORD
+            }
+        }
     }
     dependencies {
         classpath "com.diffplug.spotless:spotless-plugin-gradle:3.13.0"
@@ -27,7 +33,7 @@ subprojects {
     apply plugin: "ru.vyarus.animalsniffer"
     // jdk10 not supported by errorprone: https://github.com/google/error-prone/issues/860
     if (!JavaVersion.current().isJava10Compatible() &&
-        rootProject.properties.get('errorProne', true)) {
+    rootProject.properties.get('errorProne', true)) {
         apply plugin: "net.ltgt.errorprone"
 
         dependencies {
@@ -52,7 +58,7 @@ subprojects {
     //version = "1.17.2" // CURRENT_GRPC_VERSION
 
     group = "com.orientsec.grpc"
-    version = "1.1.0"  // 开发和测试时使用 SNAPSHOT 版本号
+    version = "1.2.2"  // 开发和测试时使用 SNAPSHOT 版本号
 
     sourceCompatibility = 1.7
     targetCompatibility = 1.7
@@ -60,6 +66,12 @@ subprojects {
     repositories {
         mavenLocal()
         mavenCentral()
+        maven { url INTRANET_MAVEN_URL
+            credentials {
+                username INTRANET_MAVEN_USERNAME
+                password INTRANET_MAVEN_PASSWORD
+            }
+        }
     }
 
     [
@@ -299,9 +311,7 @@ subprojects {
         }
     }
 
-    jacoco {
-        toolVersion = "0.8.2"
-    }
+    jacoco { toolVersion = "0.8.2" }
 
     // invoke jmh on a single benchmark class like so:
     //   ./gradlew -PjmhIncludeSingleClass=StatsTraceContextBenchmark clean :grpc-core:jmh

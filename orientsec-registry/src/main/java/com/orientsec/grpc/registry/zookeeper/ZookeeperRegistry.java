@@ -19,11 +19,13 @@
 
 package com.orientsec.grpc.registry.zookeeper;
 
-import com.orientsec.grpc.common.resource.SystemConfig;
+import com.orientsec.grpc.common.model.RegistryCenter;
+import com.orientsec.grpc.common.resource.AllRegisterCenterConf;
 import com.orientsec.grpc.registry.NotifyListener;
 import com.orientsec.grpc.registry.common.Constants;
 import com.orientsec.grpc.registry.common.URL;
-import com.orientsec.grpc.registry.common.utils.ConcurrentHashSet;
+import com.orientsec.grpc.common.collect.ConcurrentHashSet;
+import com.orientsec.grpc.registry.common.utils.StringUtils;
 import com.orientsec.grpc.registry.common.utils.UrlUtils;
 import com.orientsec.grpc.registry.exception.RpcException;
 import com.orientsec.grpc.registry.remoting.ChildListener;
@@ -50,8 +52,6 @@ public class ZookeeperRegistry extends FailbackRegistry {
 
   private final static int DEFAULT_ZOOKEEPER_PORT = Constants.DEFAULT_ZOOKEEPER_PORT;
 
-  private final static String DEFAULT_ROOT = SystemConfig.getServiceRootPath();
-
   private final String root;
 
   private final Set<String> anyServices = new ConcurrentHashSet<String>();
@@ -65,11 +65,17 @@ public class ZookeeperRegistry extends FailbackRegistry {
     if (url.isAnyHost()) {
       throw new IllegalStateException("registry address == null");
     }
-    String group = url.getParameter(Constants.GROUP_KEY, DEFAULT_ROOT);
-    if (!group.startsWith(Constants.PATH_SEPARATOR)) {
-      group = Constants.PATH_SEPARATOR + group;
+
+    String urlId = url.getId();
+    if (StringUtils.isEmpty(url.getId())) {
+      throw new IllegalStateException("注册中心url的唯一标识不能为空");
     }
-    this.root = group;
+
+    ConcurrentMap<String, RegistryCenter> allConfMap = AllRegisterCenterConf.getAllConfMap();
+    RegistryCenter rc = allConfMap.get(urlId);
+    String rootPath = rc.getRootPath();
+
+    root = rootPath;
     zkClient = zookeeperTransporter.connect(url);
     zkClient.addStateListener(new StateListener() {
       public void stateChanged(int state) {

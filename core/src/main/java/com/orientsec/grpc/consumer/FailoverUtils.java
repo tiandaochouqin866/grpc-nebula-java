@@ -18,142 +18,260 @@ package com.orientsec.grpc.consumer;
 
 import com.orientsec.grpc.common.constant.GlobalConstants;
 import com.orientsec.grpc.common.resource.SystemConfig;
-import com.orientsec.grpc.common.util.DateUtils;
 import com.orientsec.grpc.common.util.GrpcUtils;
+import com.orientsec.grpc.common.util.MathUtils;
 import com.orientsec.grpc.common.util.PropertiesUtils;
 import com.orientsec.grpc.common.util.StringUtils;
-import com.orientsec.grpc.consumer.internal.ProvidersListener;
-import com.orientsec.grpc.consumer.internal.ZookeeperNameResolver;
 import com.orientsec.grpc.consumer.model.ServiceProvider;
+import com.orientsec.grpc.common.collect.ConcurrentHashSet;
 import io.grpc.Channel;
 import io.grpc.ClientCall;
 import io.grpc.EquivalentAddressGroup;
 import io.grpc.LoadBalancer;
 import io.grpc.NameResolver;
+import io.grpc.internal.GrpcUtil;
+import io.grpc.internal.SharedResourceHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+
+import static com.orientsec.grpc.common.constant.GlobalConstants.ProviderStatus;
+
 
 /**
  * 客户端容错工具类
  * <p>
- * 实现：连续多次请求出错，自动切换到提供相同服务的新服务器
+ * (1)连续多次请求出错，自动切换到提供相同服务的新服务器（经确认，该逻辑还需要保留） <br>
+ * (2)熔断机制
  * <p/>
  *
  * @author sxp
  * @since 2018/6/21
  */
 public class FailoverUtils {
-  /**
-   * 【服务调用失败时间、次数】的散列表的key值的【consumerId和providerId之间的分隔符】
-   */
-  public static final String CONSUMERID_PROVIDERID_SEPARATOR = "@";
-
   private static final Logger logger = LoggerFactory.getLogger(FailoverUtils.class);
 
+  static final String CONSUMERID_PROVIDERID_SEPARATOR = "@";
+
+  private static Properties properties = SystemConfig.getProperties();
+
+
+  // 是否启用熔断机制
+  private static boolean enabled = initBreakerEnabled();
+
+  // 熔断机制统计周期，单位毫秒
+  private static int periodMillis = initBreakerPeriod();
+
+  // 在一个统计周期中至少请求多少次才会触发熔断机制
+  private static int requestThreshold = initBreakerRequestThreshold();
+
+  // 熔断器打开的错误百分比阈值
+  private static int errorPercentage = initBreakerErrorPercentage();
+
+  // 熔断器打开后经过多长时间允许一次请求尝试执行，单位毫秒
+  private static int breakerSleepWindowMillis = initBreakerSleepWindowInMilliseconds();
+
   /**
-   * 连续多少次请求出错，自动切换到提供相同服务的新服务器
+   * 总请求次数
+   * <p>
+   * key: consumerId@IP:port   <br>
+   * <p/>
    */
-  private static int switchoverThreshold = initThreshold();
-
-  private static int initThreshold() {
-    String key = GlobalConstants.Consumer.Key.SWITCHOVER_THRESHOLD;
-    int defaultValue = 5;
-    Properties properties = SystemConfig.getProperties();
-
-    int threshold = PropertiesUtils.getValidIntegerValue(properties, key, defaultValue);
-    if (threshold <= 0) {
-      threshold = defaultValue;
-    }
-
-    logger.info(key + " = " + threshold);
-
-    return threshold;
-  }
+  private volatile static ConcurrentHashMap<String, AtomicLong> totalRequestTimes = new ConcurrentHashMap<>();
 
   /**
-   * 服务提供者不可用时的惩罚时间，即多次请求出错的服务提供者一段时间内不再去请求
-   * <p>单位为秒,缺省值为60</p>
+   * 请求失败次数
+   * <p>
+   * key:consumerId@IP:port  <br>
+   * <p/>
    */
-  private static long punishTime = initPunishTime();// 秒
+  private volatile static ConcurrentHashMap<String, AtomicLong> failRequestTimes = new ConcurrentHashMap<>();
 
-  private static long punishTimetoMillis = punishTime * 1000;// 毫秒
+  /**
+   * 一个统计熔断周期结束的时间毫秒数
+   * <p>
+   * key：consumerId@IP:port  <br>
+   * value: 毫秒时间戳记录   <br>
+   * <p/>
+   */
+  private volatile static ConcurrentHashMap<String, Long> endCountTimeMillis = new ConcurrentHashMap<>();
 
-  private static long initPunishTime() {
-    String key = GlobalConstants.Consumer.Key.PUNISH_TIME;
-    long defaultValue = 60;
-    Properties properties = SystemConfig.getProperties();
+  /**
+   * 客户端打开熔断器的时间
+   * <p>
+   * key: consumerId@IP:port      <br>
+   * value: 毫秒时间戳
+   * <p/>
+   */
+  private volatile static ConcurrentHashMap<String, Long> openBreakerTime = new ConcurrentHashMap<>();
 
-    long time = PropertiesUtils.getValidLongValue(properties, key, defaultValue);
-    if (time < 0) {// 可以为0
-      time = defaultValue;
-    }
-
-    logger.info(key + " = " + time);
-
-    return time;
-  }
-
+  /**
+   * 请求失败的服务端
+   * <p>
+   * key: consumerId@IP:port       <br>
+   * value: 服务端的状态，详见com.orientsec.grpc.common.constant.GlobalConstants.ProviderStatus
+   * <p/>
+   */
+  private volatile static ConcurrentHashMap<String, String> failProviders = new ConcurrentHashMap<>();
 
   /**
    * 调用失败的【客户端对应服务提供者列表】
    * <p>
    * key值为：consumerId  <br>
    * value值为: 服务提供者IP:port的列表  <br>
-   * 其中consumerId指的是客户端在zk上注册的URL的字符串形式，IP:port指的是服务提供者的IP和端口
    * <p/>
    */
-  private volatile static ConcurrentHashMap<String, List<String>> failingProviders = new ConcurrentHashMap<>();
+  private volatile static ConcurrentHashMap<String, ConcurrentHashSet<String>> consumerFailProviderIds = new ConcurrentHashMap<>();
 
   /**
-   * 各个【客户端】最后一个服务提供者的删除时间
-   * <p>
-   * key值为：consumerId  <br>
-   * value值为: 最后一个服务提供者的删除时间，以当时的毫秒时间戳记录   <br>
-   * 其中consumerId指的是客户端在zk上注册的URL的字符串形式
-   * <p/>
+   * 半熔断使用的线程池
    */
-  private volatile static Map<String, Long> removeProviderTimestamp = new HashMap<>();
-
-
-  /**
-   * 各个【客户端对应服务提供者】最后一次服务调用失败时间
-   * <p>
-   * key值为：consumerId@IP:port  <br>
-   * value值为: 最后一次调用失败时间，以当时的毫秒时间戳记录   <br>
-   * 其中consumerId指的是客户端在zk上注册的URL的字符串形式，@是分隔符，IP:port指的是服务提供者的IP和端口
-   * <p/>
-   */
-  private volatile static Map<String, Long> lastFailingTime = new HashMap<>();
+  private volatile static ScheduledExecutorService timerService = null;
 
   /**
-   * 各个【客户端对应服务提供者】服务调用失败次数
-   * <p>
-   * key值为：consumerId@IP:port  <br>
-   * value值为: 失败次数   <br>
-   * 其中consumerId指的是客户端在zk上注册的URL的字符串形式，@是分隔符，IP:port指的是服务提供者的IP和端口
-   * <p/>
-   */
-  private volatile static ConcurrentHashMap<String, AtomicInteger> requestFailures = new ConcurrentHashMap<>();
-
-
-  /**
-   * 记录失败次数
+   * 熔断转变为半熔断的处理线程
    *
-   * @author sxp
-   * @since 2018-6-21
+   * @author yulei
+   * @since 2019-09-02
    */
-  public static <ReqT, RespT> void recordFailure(ClientCall<ReqT, RespT> call, Throwable t, Channel channel, Object argument) {
+  private static class HalfBreakerRunnable implements Runnable {
+    private NameResolver nameResolver;
+    private String method;
+    private String consumerId;
+    private String providerId;
+
+    public HalfBreakerRunnable(NameResolver nameResolver, String method,
+                               String consumerId, String providerId) {
+      this.nameResolver = nameResolver;
+      this.method = method;
+      this.consumerId = consumerId;
+      this.providerId = providerId;
+    }
+
+    @Override
+    public void run() {
+      String key = consumerId + CONSUMERID_PROVIDERID_SEPARATOR + providerId;
+
+      if (!failProviders.containsKey(key) || !openBreakerTime.containsKey(key)) {
+        return;
+      }
+
+      Map<String, ServiceProvider> allProviders = nameResolver.getAllProviders();
+      if (allProviders == null || allProviders.isEmpty()
+              || !allProviders.containsKey(providerId)) {
+        return;
+      }
+
+      ServiceProvider serviceProvider;
+      Map<String, ServiceProvider> providersForLoadBalance;
+      String status = failProviders.get(key);
+
+      if (ProviderStatus.BREAKER.equals(status)) {
+        providersForLoadBalance = nameResolver.getProvidersForLoadBalance();
+        serviceProvider = allProviders.get(providerId);
+
+        if (serviceProvider != null) {
+          if (logger.isDebugEnabled()) {
+            logger.debug("将服务[" + providerId + "]标识为半熔断，再重新放到服务列表中");
+          }
+          failProviders.put(key, ProviderStatus.HALF_BREAKER);
+          providersForLoadBalance.put(providerId, serviceProvider);
+          nameResolver.reCalculateProvidersCountAfterLoadBalance(method);
+        }
+      }
+    }
+  }
+
+  /**
+   * 是否启用熔断机制
+   */
+  private static boolean initBreakerEnabled() {
+    String key = GlobalConstants.CommonKey.BREAKER_ENABLED;
+    boolean value = PropertiesUtils.getValidBooleanValue(properties, key, true);
+    logger.info(key + " = " + value);
+    return value;
+  }
+
+  /**
+   * 初始化熔断机制统计周期，单位毫秒
+   */
+  private static int initBreakerPeriod() {
+    String key = GlobalConstants.CommonKey.BREAKER_PERIOD;
+    int defaultValue = 60000;
+    int value = PropertiesUtils.getValidIntegerValue(properties, key, defaultValue);
+    if (value <= 0) {
+      value = defaultValue;
+    }
+
+    logger.info(key + " = " + value);
+    return value;
+  }
+
+  /**
+   * 初始化一个统计周期中至少请求多少次才会触发熔断机制
+   */
+  private static int initBreakerRequestThreshold() {
+    String key = GlobalConstants.CommonKey.BREAKER_REQUEST_THRESHOLD;
+    int defaultValue = 20;
+    int value = PropertiesUtils.getValidIntegerValue(properties, key, defaultValue);
+    if (value <= 0) {
+      value = defaultValue;
+    }
+
+    logger.info(key + " = " + value);
+    return value;
+  }
+
+  /**
+   * 初始化熔断器打开的错误百分比阈值
+   */
+  private static int initBreakerErrorPercentage() {
+    String key = GlobalConstants.CommonKey.BREAKER_ERROR_PERCENTAGE;
+    int defaultValue = 50;
+    int value = PropertiesUtils.getValidIntegerValue(properties, key, defaultValue);
+    if (value <= 0) {
+      value = defaultValue;
+    }
+
+    logger.info(key + " = " + value);
+    return value;
+  }
+
+  /**
+   * 初始化熔断器打开后经过多长时间允许一次请求尝试执行，单位毫秒
+   */
+  private static int initBreakerSleepWindowInMilliseconds() {
+    String key = GlobalConstants.CommonKey.BREAKER_SLEEPWINDOWINMiLLISECONDS;
+    int defaultValue = 60000;
+    int value = PropertiesUtils.getValidIntegerValue(properties, key, defaultValue);
+    if (value <= 0) {
+      value = defaultValue;
+    }
+
+    logger.info(key + " = " + value);
+    return value;
+  }
+
+  // --------------------------------------------------------
+
+  /**
+   * 统计在一个统计周期中总请求次数、出错次数，并计算是否进行熔断
+   *
+   * @author yulei
+   * @since 2019-07-22
+   * @since 2019-08-27 modify by sxp 代码完善
+   */
+  public static <ReqT, RespT> void recordRequest(Channel channel, boolean success, ClientCall<ReqT, RespT> call) {
     if (channel == null) {
       return;
     }
@@ -175,152 +293,148 @@ public class FailoverUtils {
 
     String key = consumerId + CONSUMERID_PROVIDERID_SEPARATOR + providerId;
 
-    long currentTimestamp = System.currentTimeMillis();
-    long lastTimestamp;  // 最后一次服务调用失败时间
+    String method = GrpcUtils.getSimpleMethodName(call.getFullMethod());
 
-    if (lastFailingTime.containsKey(key)) {
-      lastTimestamp = lastFailingTime.get(key);
-    } else {
-      lastTimestamp = currentTimestamp;
-    }
-    lastFailingTime.put(key, currentTimestamp);
+    long currentTime = System.currentTimeMillis();
 
-    // 更新客户端对应服务提供者列表
-    updateFailingProviders(consumerId, providerId);
-
-    // 更新失败次数
-    updateFailTimes(nameResolver, consumerId, providerId, lastTimestamp, currentTimestamp, argument, GrpcUtils.getSimpleMethodName(call.getFullMethod()));
-  }
-
-  /**
-   * 更新客户端对应服务提供者列表
-   *
-   * @author sxp
-   * @since 2018-6-25
-   */
-  private static void updateFailingProviders(String consumerId, String providerId) {
-    List<String> providers;
-
-    if (failingProviders.containsKey(consumerId)) {
-      providers = failingProviders.get(consumerId);
-    } else {
-      providers = new ArrayList<>();
-      List<String> oldValue = failingProviders.putIfAbsent(consumerId, providers);
-      if (oldValue != null) {
-        providers = oldValue;
-      }
+    // 连续多次请求出错，自动切换到提供相同服务的新服务器
+    if(!success) {
+      ErrorNumberUtil.recordFailure(call, channel, method);
     }
 
-    if (!providers.contains(providerId)) {
-      try {
-        providers.add(providerId);// 不加锁，允许出现脏数据
-      } catch (Exception e) {
-        logger.info("更新客户端对应服务提供者列表出错", e);
-      }
-    }
-  }
-
-  /**
-   * 服务调用失败次数
-   *
-   * @author sxp
-   * @since 2018-6-25
-   */
-  private static void updateFailTimes(NameResolver nameResolver, String consumerId, String providerId,
-                                      long lastTimestamp, long currentTimestamp, Object argument, String method) {
-    AtomicInteger failTimes;// 失败次数
-
-    String key = consumerId + CONSUMERID_PROVIDERID_SEPARATOR + providerId;
-
-    if (!requestFailures.containsKey(key)) {
-      failTimes = new AtomicInteger(0);
-      AtomicInteger oldValue = requestFailures.putIfAbsent(key, failTimes);
-      if (oldValue != null) {
-        failTimes = oldValue;
-      }
-    } else {
-      failTimes = requestFailures.get(key);
-
-      // 为了提高性能，不对调用成功的情况进行记录，使用以下策略近似判断连续多次调用失败：
-      // 将当前时间和最后一次出错时间的记录做比较，如果时间间隔大于10分钟，将之前的错误次数清0
-      if (currentTimestamp - lastTimestamp > DateUtils.TEN_MINUTES_IN_MILLIS) {
-        failTimes.set(0);
-      }
+    // 熔断机制
+    if (!enabled) {
+      return;
     }
 
-    failTimes.incrementAndGet();
+    if (timerService == null) {
+      timerService = SharedResourceHolder.get(GrpcUtil.TIMER_SERVICE);
+    }
 
-    int consumerProvidersAmount = getConsumerProvidersAmount(nameResolver);// 客户端服务列表中服务提供者的数量
-    boolean isZkProviderListEmpty = isZkProviderListEmpty(nameResolver);// 注册中心上服务提供者列表是否为空
+    // 对于半熔断的服务端，如果该请求执行成功，说明服务可能已经恢复了正常，关闭熔断器；
+    // 如果该请求执行失败，则认为服务依然不可用，熔断器继续保持打开状态
+    if (failProviders.containsKey(key)) {
+      String status = failProviders.get(key);
+      if (ProviderStatus.HALF_BREAKER.equals(status)) {
+        if (success) {
+          failProviders.remove(key);
+          openBreakerTime.remove(key);
 
-    if (failTimes.get() >= switchoverThreshold) {
-      if (consumerProvidersAmount == 1) {
-        if (punishTime == 0) {
-          // 什么也不做 ---- 如果服务提供者不恢复正常，之后的调用会一直报错
+          ConcurrentHashSet<String> ids = consumerFailProviderIds.get(consumerId);
+          if (ids != null) {
+            ids.remove(providerId);
+          }
         } else {
-          // 记录最后一个服务提供者的删除时间key=consumerId
-          removeProviderTimestamp.put(consumerId, currentTimestamp);
-
-          // 将当前出错的服务提供者从备选列表中剔除
+          if (logger.isDebugEnabled()) {
+            logger.debug("半熔断的服务端[" + providerId + "]不可用，继续保持熔断状态");
+          }
+          failProviders.put(key, ProviderStatus.BREAKER);
+          openBreakerTime.put(key, currentTime);
           removeCurrentProvider(nameResolver, providerId, method);
-        }
-      } else if (consumerProvidersAmount > 1){// 存在多个服务提供者的情况
-        removeCurrentProvider(nameResolver, providerId, method);
-      }
-
-      consumerProvidersAmount = getConsumerProvidersAmount(nameResolver);// 重新获取(可能调用removeCurrentProvider)
-
-      if (consumerProvidersAmount > 0) {
-        // 重选服务提供者
-        try {
-          logger.info("重选服务提供者");
-          nameResolver.resolveServerInfo(argument, method);
-        } catch (Throwable t) {
-          logger.info("重选服务提供者出错", t);
+          saveFailProviderId(consumerId, providerId);
+          // 半熔断的处理
+          HalfBreakerRunnable runnable = new HalfBreakerRunnable(nameResolver, method, consumerId, providerId);
+          timerService.schedule(runnable, breakerSleepWindowMillis, TimeUnit.MILLISECONDS);
         }
       }
-
-      failTimes.set(0);// 重置请求出错次数
     }
 
-    consumerProvidersAmount = getConsumerProvidersAmount(nameResolver);// 重新获取(可能调用resolveServerInfo)
-
-    if (consumerProvidersAmount == 0 && !isZkProviderListEmpty && punishTime > 0) {
-      long removeTime;
-      if (removeProviderTimestamp.containsKey(consumerId)) {
-        removeTime = removeProviderTimestamp.get(consumerId);
-      } else {
-        removeTime = 0L;
+    if (!totalRequestTimes.containsKey(key)) {
+      AtomicLong totalTimes = new AtomicLong(1);
+      AtomicLong oldValue = totalRequestTimes.putIfAbsent(key, totalTimes);
+      if (oldValue != null) {
+        oldValue.incrementAndGet();
       }
 
-      if (currentTimestamp - removeTime >= punishTimetoMillis) {
-        // 重新查询一遍服务提供者，将注册中心上的服务列表写入当前消费者的服务列表
-        if (nameResolver instanceof ZookeeperNameResolver) {
-          ZookeeperNameResolver zkResolver = (ZookeeperNameResolver) nameResolver;
+      AtomicLong failTimes;
+      if (!success) {
+        failTimes = new AtomicLong(1);
+      } else {
+        failTimes = new AtomicLong(0);
+      }
 
-          String serviceName = zkResolver.getServiceName();
-          Object lock = zkResolver.getLock();
+      oldValue = failRequestTimes.putIfAbsent(key, failTimes);
+      if (oldValue != null) {
+        if (!success) {
+          oldValue.incrementAndGet();
+        }
+      }
+    } else {
+      AtomicLong totalTimes = totalRequestTimes.get(key);
+      totalTimes.incrementAndGet();
 
-          synchronized (lock) {// 这里相当于模拟服务列表发生变化，需要加锁
-            zkResolver.getAllByName(serviceName);
+      if (!success) {
+        AtomicLong failTimes = failRequestTimes.get(key);
+        failTimes.incrementAndGet();
+      }
+    }
 
-            try {
-              logger.info("重选服务提供者");
-              nameResolver.resolveServerInfo(argument, method);
-            } catch (Throwable t) {
-              logger.info("重选服务提供者出错", t);
-            }
+    // 当前请求第一次发生，或者已经发生过的请求开启新的统计周期
+    if (!endCountTimeMillis.containsKey(key) || endCountTimeMillis.get(key) == 0L) {
+      long endTime = currentTime + periodMillis;
+      endCountTimeMillis.put(key, endTime);
+    } else {
+      // 一个统计周期结束的处理
+      long endTimeMillis = endCountTimeMillis.get(key);
+      if (currentTime >= endTimeMillis) {
+        AtomicLong totalCounter = totalRequestTimes.get(key);
+        AtomicLong failCounter = failRequestTimes.get(key);
+
+        long total = (totalCounter == null) ? 0 : totalCounter.get();
+        long fail = (failCounter == null) ? 0 : failCounter.get();
+
+        if (total >= requestThreshold) {
+          int percent = (int) MathUtils.round(100D * fail / total, 0);
+
+          if (percent >= errorPercentage) {
+            logger.info("客户端调用服务端[" + providerId + "]时错误率为[" + percent + "]，开启熔断器");
+
+            failProviders.put(key, ProviderStatus.BREAKER);
+            openBreakerTime.put(key, currentTime);
+            removeCurrentProvider(nameResolver, providerId, method);
+            saveFailProviderId(consumerId, providerId);
+            // 半熔断的处理
+            HalfBreakerRunnable runnable = new HalfBreakerRunnable(nameResolver, method, consumerId, providerId);
+            timerService.schedule(runnable, breakerSleepWindowMillis, TimeUnit.MILLISECONDS);
           }
         }
 
-        // 然后将removeProviderTimestamp中的这个消费者的数据删除
-        removeProviderTimestamp.remove(consumerId);
-      } else {
-        String serviceName = nameResolver.getServiceName();
-        logger.info("注册中心上存在{}服务提供者，但是客户端调用多次出错，在惩罚时间{}秒内服务提供者不可用", serviceName, punishTime);
+        // 一个统计周期完成后将数量、时间归零
+        if (totalCounter != null) {
+          totalCounter.set(0L);
+        }
+        if (failCounter != null) {
+          failCounter.set(0L);
+        }
+        endCountTimeMillis.put(key, 0L);
       }
     }
   }
+
+
+  /**
+   * 客户端调用失败的服务端唯一标识
+   *
+   * @author sxp
+   * @since 2019/8/26
+   */
+  private static void saveFailProviderId(String consumerId, String providerId) {
+    ConcurrentHashSet<String> providerIds;
+
+    if (!consumerFailProviderIds.containsKey(consumerId)) {
+      providerIds = new ConcurrentHashSet<>();
+      providerIds.add(providerId);
+
+      ConcurrentHashSet<String> oldValue = consumerFailProviderIds.putIfAbsent(consumerId, providerIds);
+      if (oldValue != null) {
+        oldValue.add(providerId);
+      }
+    } else {
+      providerIds = consumerFailProviderIds.get(consumerId);
+      providerIds.add(providerId);
+    }
+  }
+
 
   /**
    * 将当前出错的服务器从备选列表中去除
@@ -335,39 +449,37 @@ public class FailoverUtils {
     }
 
     if (providersForLoadBalance.containsKey(providerId)) {
-      logger.info("将当前出错的服务器{}从备选列表中删除", providerId);
+      if (logger.isDebugEnabled()) {
+        logger.debug("将当前出错的服务器{}从备选列表中删除", providerId);
+      }
       providersForLoadBalance.remove(providerId);
       nameResolver.reCalculateProvidersCountAfterLoadBalance(method);
+
+      int size = providersForLoadBalance.size();
+      if (size > 0) {
+        try {
+          Object argument = getArgument(nameResolver);
+          nameResolver.resolveServerInfo(argument, method);
+        } catch (Throwable t) {
+          logger.warn("重选服务提供者出错", t);
+        }
+      }
     }
   }
 
   /**
-   * 获取客户端服务列表中服务提供者的数量
+   * 获取一致性Hash负载均衡算法的参数值
    *
    * @author sxp
-   * @since 2018-7-7
+   * @since 2019/8/27
    */
-  private static int getConsumerProvidersAmount(NameResolver nameResolver) {
-    Map<String, ServiceProvider> providersForLoadBalance = nameResolver.getProvidersForLoadBalance();
-    if (providersForLoadBalance == null) {
-      return 0;
+  static Object getArgument(NameResolver nameResolver) {
+    String serviceName = null;
+    if (nameResolver != null) {
+      serviceName = nameResolver.getServiceName();
     }
-    return providersForLoadBalance.size();
-  }
-
-  /**
-   * 注册中心上该消费者的服务提供者列表是否为空
-   *
-   * @author sxp
-   * @since 2018-7-7
-   */
-  private static boolean isZkProviderListEmpty(NameResolver nameResolver) {
-    ProvidersListener listener = nameResolver.getProvidersListener();
-    if (listener == null) {
-      return true;// 为空
-    }
-
-    return listener.isProviderListEmpty();
+    Object argument = ConsistentHashArguments.getArgument(serviceName);
+    return argument;
   }
 
   /**
@@ -377,7 +489,7 @@ public class FailoverUtils {
    * @author sxp
    * @since 2018-6-25
    */
-  public static String getProviderId(Channel channel) {
+  static String getProviderId(Channel channel) {
     if (channel == null) {
       return null;
     }
@@ -418,35 +530,34 @@ public class FailoverUtils {
   }
 
   /**
-   * 删除与当前客户端相关的数据(服务调用出错次数、时间、当前客户端对应的服务提供者列表)
+   * 删除与当前客户端相关的数据
    *
    * @author sxp
    * @since 2018-6-25
    */
   public static void removeDateByConsumerId(String consumerId) {
-    if (!failingProviders.containsKey(consumerId)) {
-      return;// consumerId对应的客户端没有出现过调用出错的情况
+    // 【连续多次请求出错，自动切换到提供相同服务的新服务器】的变量
+    ErrorNumberUtil.removeDateByConsumerId(consumerId);
+
+    // 熔断机制的变量
+    if (!consumerFailProviderIds.containsKey(consumerId)) {
+      return;
     }
 
-    List<String> providerIds = failingProviders.get(consumerId);
+    ConcurrentHashSet<String> providerIds = consumerFailProviderIds.get(consumerId);
+
     String key;
 
-    for(String providerId : providerIds) {
+    for (String providerId : providerIds) {
       key = consumerId + CONSUMERID_PROVIDERID_SEPARATOR + providerId;
-      lastFailingTime.remove(key);// 服务最后一次调用出错时间
-      requestFailures.remove(key);// 服务调用出错次数
+      failProviders.remove(key);
+      openBreakerTime.remove(key);
+      totalRequestTimes.remove(key);
+      failRequestTimes.remove(key);
+      endCountTimeMillis.remove(key);
     }
 
-    failingProviders.remove(consumerId);// 服务提供者列表
-
-    removeProviderTimestamp.remove(consumerId);// 最后一个服务提供者的删除时间
+    consumerFailProviderIds.remove(consumerId);
   }
 
-  public static int getSwitchoverThreshold() {
-    return switchoverThreshold;
-  }
-
-  public static long getPunishTimetoMillis() {
-    return punishTimetoMillis;
-  }
 }

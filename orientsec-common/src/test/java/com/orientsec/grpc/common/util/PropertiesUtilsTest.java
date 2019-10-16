@@ -75,8 +75,8 @@ public class PropertiesUtilsTest {
 
   @Test
   public void getValidIntegerValue() throws Exception {
-    String key = GlobalConstants.Consumer.Key.SWITCHOVER_THRESHOLD;
-    int defaultValue = 5;
+    String key = GlobalConstants.CommonKey.BREAKER_REQUEST_THRESHOLD;
+    int defaultValue = 20;
 
     Properties properties = SystemConfig.getProperties();
 
@@ -90,16 +90,16 @@ public class PropertiesUtilsTest {
 
   @Test
   public void getValidLongValue() {
-    String key = GlobalConstants.Consumer.Key.PUNISH_TIME;
-    long defaultValue = 60;
+    String key = GlobalConstants.Consumer.Key.BACKOFF_INITIAL;
+    long defaultValue = 1L;
     Properties properties = SystemConfig.getProperties();
 
-    long time = PropertiesUtils.getValidLongValue(properties, key, defaultValue);
-    if (time < 0) {// 可以为0
-      time = defaultValue;
+    long value = PropertiesUtils.getValidLongValue(properties, key, defaultValue);
+    if (value <= 0) {
+      value = defaultValue;
     }
 
-    Assert.assertEquals(defaultValue, time);
+    Assert.assertEquals(defaultValue, value);
   }
 
 

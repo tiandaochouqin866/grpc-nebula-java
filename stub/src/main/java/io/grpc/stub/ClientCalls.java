@@ -45,6 +45,8 @@ import io.grpc.NameResolver;
 import io.grpc.Status;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import java.util.Iterator;
@@ -57,8 +59,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -69,7 +69,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class ClientCalls {
 
-  private static final Logger logger = Logger.getLogger(ClientCalls.class.getName());
+  private static final Logger logger = LoggerFactory.getLogger(ClientCalls.class);
 
   /**
    * 失败重试次数
@@ -163,6 +163,9 @@ public final class ClientCalls {
       Channel channel, MethodDescriptor<ReqT, RespT> method, CallOptions callOptions, ReqT req) {
     ThreadlessExecutor executor = new ThreadlessExecutor();
     ClientCall<ReqT, RespT> call = channel.newCall(method, callOptions.withExecutor(executor));
+
+    boolean success = true;
+
     try {
       ListenableFuture<RespT> responseFuture = futureUnaryCall(call, req);
       judgeResponseFuture(responseFuture, executor);
@@ -173,7 +176,7 @@ public final class ClientCalls {
         return respT;
       }
 
-      FailoverUtils.recordFailure(call, e, channel, null);
+      success = false;
       throw cancelThrow(call, e);
     } catch (Error e) {
       RespT respT = failureRetry(channel, method, callOptions, req, call, executor);
@@ -181,8 +184,12 @@ public final class ClientCalls {
         return respT;
       }
 
-      FailoverUtils.recordFailure(call, e, channel, null);
+      success = false;
       throw cancelThrow(call, e);
+    } finally {
+      //----begin----计算请求次数、请求出错次数----
+      FailoverUtils.recordRequest(channel, success, call);
+      //----end------计算请求次数、请求出错次数----
     }
   }
 
@@ -311,12 +318,16 @@ public final class ClientCalls {
     ClientCall<ReqT, RespT> call = channel.newCall(method, callOptions.withExecutor(executor));
     BlockingResponseStream<RespT> result = new BlockingResponseStream<RespT>(call, executor);
 
+    boolean success = true;
+
     try {
       asyncUnaryRequestCall(call, req, result.listener(), true);
     } catch (Throwable t) {
-      //----begin----请求出错时记录出错次数----
-      FailoverUtils.recordFailure(call, t, channel, null);
-      //----end----请求出错时记录出错次数----
+      success = false;
+    } finally {
+      //----begin----计算请求次数、请求出错次数----
+      FailoverUtils.recordRequest(channel, success, call);
+      //----end------计算请求次数、请求出错次数----
     }
 
     return result;
@@ -394,7 +405,7 @@ public final class ClientCalls {
       call.cancel(null, t);
     } catch (Throwable e) {
       assert e instanceof RuntimeException || e instanceof Error;
-      logger.log(Level.SEVERE, "RuntimeException encountered while closing call", e);
+      logger.error("RuntimeException encountered while closing call", e);
     }
     if (t instanceof RuntimeException) {
       throw (RuntimeException) t;
@@ -866,7 +877,7 @@ public final class ClientCalls {
   }
 
   private static final class ThreadlessExecutor implements Executor {
-    private static final Logger log = Logger.getLogger(ThreadlessExecutor.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(ThreadlessExecutor.class);
 
     private final BlockingQueue<Runnable> queue = new LinkedBlockingQueue<Runnable>();
 
@@ -882,7 +893,7 @@ public final class ClientCalls {
         try {
           runnable.run();
         } catch (Throwable t) {
-          log.log(Level.WARNING, "Runnable threw exception", t);
+          log.warn("Runnable threw exception", t);
         }
         runnable = queue.poll();
       }

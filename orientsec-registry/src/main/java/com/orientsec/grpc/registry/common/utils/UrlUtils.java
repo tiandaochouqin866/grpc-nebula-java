@@ -18,11 +18,15 @@
 package com.orientsec.grpc.registry.common.utils;
 
 
-
 import com.orientsec.grpc.common.constant.GlobalConstants;
+import com.orientsec.grpc.common.model.RegistryCenter;
+import com.orientsec.grpc.common.resource.AllRegisterCenterConf;
 import com.orientsec.grpc.common.resource.SystemConfig;
+import com.orientsec.grpc.common.util.MapUtils;
 import com.orientsec.grpc.registry.common.Constants;
 import com.orientsec.grpc.registry.common.URL;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -30,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * URL工具类
@@ -38,6 +43,8 @@ import java.util.Set;
  * @since 2018/3/15.
  */
 public class UrlUtils {
+  private static Logger logger = LoggerFactory.getLogger(UrlUtils.class);
+
   /**
    * 将IP地址和指定的参数集合转化为URL
    *
@@ -375,6 +382,9 @@ public class UrlUtils {
     }
   }
 
+  /**
+   * @since 2019-06-26 modify by sxp 为了实现对group属性的动态配置，去掉group的判断
+   */
   public static boolean isMatch(URL consumerUrl, URL providerUrl) {
     String consumerInterface = consumerUrl.getServiceInterface();
     String providerInterface = providerUrl.getServiceInterface();
@@ -390,15 +400,12 @@ public class UrlUtils {
       return false;
     }
 
-    String consumerGroup = consumerUrl.getParameter(Constants.GROUP_KEY);
     String consumerVersion = consumerUrl.getParameter(Constants.VERSION_KEY);
     String consumerClassifier = consumerUrl.getParameter(Constants.CLASSIFIER_KEY, Constants.ANY_VALUE);
 
-    String providerGroup = providerUrl.getParameter(Constants.GROUP_KEY);
     String providerVersion = providerUrl.getParameter(Constants.VERSION_KEY);
     String providerClassifier = providerUrl.getParameter(Constants.CLASSIFIER_KEY, Constants.ANY_VALUE);
-    return (Constants.ANY_VALUE.equals(consumerGroup) || StringUtils.isEquals(consumerGroup, providerGroup) || StringUtils.isContains(consumerGroup, providerGroup))
-            && (consumerVersion == null || Constants.ANY_VALUE.equals(consumerVersion) || StringUtils.isEquals(consumerVersion, providerVersion))
+    return (consumerVersion == null || Constants.ANY_VALUE.equals(consumerVersion) || StringUtils.isEquals(consumerVersion, providerVersion))
             && (consumerClassifier == null || Constants.ANY_VALUE.equals(consumerClassifier) || StringUtils.isEquals(consumerClassifier, providerClassifier));
   }
 
@@ -464,49 +471,105 @@ public class UrlUtils {
     }
   }
 
-  public static URL fromConfig(){
+  /**
+   * 获取注册中心对应的URL
+   *
+   * @since 2019/9/10 方法重命名，并将可复用代码提取未一个独立方法
+   */
+  public static URL getRegisterURL(String key) {
     Properties properties = SystemConfig.getProperties();
     if (properties == null) {
-      System.out.println("Cannot load properties:" + GlobalConstants.CONFIG_FILE_PATH);
+      logger.error("读取配置文件错误，无法获取配置信息");
       return null;
     }
-    String addresses = properties.getProperty(GlobalConstants.REGISTRY_CENTTER_ADDRESS);
-    if (addresses == null ||
-            addresses.length() == 0){
-      System.out.println("Cannot find key :" + GlobalConstants.REGISTRY_CENTTER_ADDRESS +
-              " in " + GlobalConstants.CONFIG_FILE_PATH);
+
+    String addresses = properties.getProperty(key);
+    if (StringUtils.isEmpty(addresses)) {
+      logger.warn("配置文件中没有读取到注册中心的服务器列表信息");
       return null;
     }
+
+    URL url = getZkUrlByAddress(addresses, key);
+
+    return url;
+  }
+
+
+  /**
+   * 将注册中心地址转化为URL
+   *
+   * @param addresses 注册中心服务器地址列表
+   * @param id        给该注册中心地址设置一个唯一标识
+   */
+  public static URL getZkUrlByAddress(String addresses, String id) {
+    if (StringUtils.isEmpty(addresses)) {
+      return null;
+    }
+
+    Map<String, String> parameters = new HashMap<>(MapUtils.capacity(2));
+    if (StringUtils.isNotEmpty(id)) {
+      parameters.put("id", id);
+    }
+
+    String address;
     int index = addresses.indexOf(",");
-    String address = "";
-    String backupAddr = "";
-    Map<String,String> parameters = null;
-    if (index < 0){
+
+    if (index < 0) {
       address = addresses;
-    }else{
-      address = addresses.substring(0,index);
-      backupAddr = addresses.substring(index + 1);
-      parameters = new HashMap<String, String>();
-      parameters.put(Constants.BACKUP_KEY,backupAddr);
+    } else {
+      address = addresses.substring(0, index);
+      String backupAddr = addresses.substring(index + 1);
+      parameters.put(Constants.BACKUP_KEY, backupAddr);
     }
 
     String[] ipAndPort = address.split(":");
-    String registryIp = null;
-    int registryPort = GlobalConstants.ServiceAddrKey.ZOOKEEPER.DEFAULT_PORT;
-    if (ipAndPort.length == 2){
+    String registryIp;
+    int registryPort = GlobalConstants.Zookeeper.DEFAULT_PORT;
+    if (ipAndPort.length == 2) {
       registryIp = ipAndPort[0];
       registryPort = Integer.valueOf(ipAndPort[1]);
-    }else{
+    } else {
       registryIp = ipAndPort[0];
     }
-    URL url = null;
-    if (index < 0){
-      url = new URL(GlobalConstants.ServiceAddrKey.ZOOKEEPER.PROTOCOL_PREFIX,
-              registryIp,registryPort);
-    }else{
-      url = new URL(GlobalConstants.ServiceAddrKey.ZOOKEEPER.PROTOCOL_PREFIX,
-              registryIp,registryPort,parameters);
-    }
+
+    URL url = new URL(GlobalConstants.Zookeeper.PROTOCOL_PREFIX, registryIp, registryPort, parameters);
+
     return url;
   }
+
+
+  /**
+   * 服务端注册的所有注册中心对应的URL
+   *
+   * @author yulei
+   * @since 2019/8/27
+   */
+  public static List<URL> getAllProviderRegisterURLs() {
+    Properties properties = SystemConfig.getProperties();
+    if (properties == null) {
+      logger.error("读取配置文件错误，无法获取配置信息");
+      return null;
+    }
+
+    ConcurrentMap<String, RegistryCenter> allConfMap = AllRegisterCenterConf.getAllConfMap();
+    List<URL> urlList = new ArrayList<>(allConfMap.size());
+
+    String addresses, addrKey;
+    URL url;
+
+    for (Map.Entry<String, RegistryCenter> entry : allConfMap.entrySet()) {
+      addrKey = entry.getKey();
+      addresses = properties.getProperty(addrKey);
+      if (StringUtils.isEmpty(addresses)) {
+        continue;
+      }
+      url = getZkUrlByAddress(addresses, addrKey);
+      if (url != null) {
+        urlList.add(url);
+      }
+    }
+
+    return urlList;
+  }
+
 }

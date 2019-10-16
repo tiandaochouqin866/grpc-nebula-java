@@ -16,6 +16,7 @@
  */
 package com.orientsec.grpc.registry.common.utils;
 
+import com.orientsec.grpc.common.collect.ConcurrentHashSet;
 import org.junit.Assert;
 import org.junit.Test;
 

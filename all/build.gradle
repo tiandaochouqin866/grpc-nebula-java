@@ -3,7 +3,17 @@ apply plugin: 'com.github.kt3k.coveralls'
 description = "gRPC: All"
 
 buildscript {
-    repositories { mavenCentral() }
+    repositories {
+        mavenLocal()
+        mavenCentral()
+        maven { url "https://plugins.gradle.org/m2/" }
+        maven { url INTRANET_MAVEN_URL
+            credentials {
+                username INTRANET_MAVEN_USERNAME
+                password INTRANET_MAVEN_PASSWORD
+            }
+        }
+    }
     dependencies { classpath 'org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.0.1' }
 }
 

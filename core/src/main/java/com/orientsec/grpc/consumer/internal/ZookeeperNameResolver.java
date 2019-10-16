@@ -21,6 +21,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.orientsec.grpc.common.constant.GlobalConstants;
 import com.orientsec.grpc.common.constant.RegistryConstants;
+import com.orientsec.grpc.common.resource.RegisterCenterConf;
 import com.orientsec.grpc.common.resource.SystemConfig;
 import com.orientsec.grpc.common.util.ConfigFileHelper;
 import com.orientsec.grpc.common.util.IpUtils;
@@ -34,6 +35,7 @@ import com.orientsec.grpc.consumer.model.ServiceProvider;
 import com.orientsec.grpc.consumer.routers.Router;
 import com.orientsec.grpc.registry.common.URL;
 import com.orientsec.grpc.registry.common.utils.UrlUtils;
+import com.orientsec.grpc.registry.service.Consumer;
 import io.grpc.Attributes;
 import io.grpc.EquivalentAddressGroup;
 import io.grpc.ManagedChannel;
@@ -54,9 +56,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import static com.orientsec.grpc.common.constant.GlobalConstants.LB_STRATEGY;
 
@@ -68,6 +74,9 @@ import static com.orientsec.grpc.common.constant.GlobalConstants.LB_STRATEGY;
  */
 public class ZookeeperNameResolver extends NameResolver {
   private static final Logger logger = LoggerFactory.getLogger(ZookeeperNameResolver.class);
+  /** 确定zkURL的定时任务时间间隔 */
+  private static final long FIND_DELAY = 8;
+
   private final String authority;
   private String serviceName;
   private final Resource<ScheduledExecutorService> timerServiceResource;
@@ -105,16 +114,26 @@ public class ZookeeperNameResolver extends NameResolver {
   private volatile URL zkRegistryURL;
   private volatile String subscribeId;//订阅id
   private volatile URL consumerUrl;
-  private volatile String serviceVersion;
+  private volatile String serviceVersion, group;
   private volatile String consumerIP;// 当前客户端的IP
   private volatile ManagedChannel mc;
 
   private volatile boolean useInitProvidersData;
 
+  private volatile ScheduledExecutorService findZkExecutor = Executors.newScheduledThreadPool(1);;
+  private volatile ScheduledFuture<?> findZkFuture;
+  private final Runnable findZkTask = new Runnable() {
+    @Override
+    public void run() {
+      findZkUrlForTwoRc();
+    }
+  };
+  private final String cannotFindZkMsg;
+
+
   ZookeeperNameResolver(URI targetUri, String name, Attributes params,
                         Resource<ScheduledExecutorService> timerServiceResource,
                         Resource<Executor> executorResource) {
-
     this.timerServiceResource = timerServiceResource;
     this.executorResource = executorResource;
     // Must prepend a "//" to the name when constructing a URI, otherwise it will be treated as an
@@ -126,7 +145,8 @@ public class ZookeeperNameResolver extends NameResolver {
 
     this.useInitProvidersData = false;
 
-    this.zkRegistryURL = getURL();
+    cannotFindZkMsg = "配置文件里同时配置了公共、私有注册注册中心，但是在两个注册中心都找不到服务["
+            + serviceName + "]的注册信息，[" + FIND_DELAY + "]秒后再次查找服务端所在的注册中心！";
   }
 
   public Map<String, ServiceProvider> getServiceProviderMap() {
@@ -146,26 +166,94 @@ public class ZookeeperNameResolver extends NameResolver {
     return authority;
   }
 
-  public URL getURL() {
-    if (zkRegistryURL != null) {
-      return zkRegistryURL;
+  public NameResolver build() {
+    URL zkUrl;
+    String key = RegisterCenterConf.getConsumerRcProKey();
+    boolean hasTwoRc = GlobalConstants.PUBLIC_PRIVATE_REGISTRY_CENTER.equals(key);
+
+    if (hasTwoRc) {
+      zkUrl = findProviderZk();
+      if (zkUrl == null) {
+        logger.warn(cannotFindZkMsg);
+        findZkFuture = findZkExecutor.schedule(findZkTask, FIND_DELAY, TimeUnit.SECONDS);
+
+        // 暂时将客户端注册到公共注册中心
+        zkUrl = UrlUtils.getRegisterURL(key);
+      }
+    } else {
+      zkUrl = UrlUtils.getRegisterURL(key);
     }
 
-    URL url = UrlUtils.fromConfig();
-    if (url == null) {
-      logger.error("配置文件读写错误或者找到zk对应的配置项 :" + GlobalConstants.REGISTRY_CENTTER_ADDRESS +
-              " in " + GlobalConstants.CONFIG_FILE_PATH);
+    if (registry != null && zkUrl != null) {
+      zkRegistryURL = zkUrl;
+      registry = registry.forTarget(zkUrl).build();
     }
-    zkRegistryURL = url;
 
-    return url;
+    return this;
   }
 
-  public NameResolver build() {
-    if (registry != null) {
-      registry = registry.forTarget(this.getURL()).build();
+  /**
+   * 客户端配置文件里同时配置了公共、私有注册注册中心时，通过查询服务端注册信息在哪个注册中心上，确定当前客户端所使用的注册中心
+   *
+   * @author sxp
+   * @since 2019/10/8
+   */
+  private URL findProviderZk() {
+    URL zkUrl;
+
+    Map<String, String> parameters = new HashMap<>();
+    parameters.put(GlobalConstants.Consumer.Key.INTERFACE, serviceName);
+    parameters.put(GlobalConstants.CommonKey.CATEGORY, RegistryConstants.PROVIDERS_CATEGORY);
+    URL queryUrl = new URL(RegistryConstants.GRPC_PROTOCOL, "0.0.0.0", 0, parameters);
+
+    URL publicZkUrl = UrlUtils.getRegisterURL(GlobalConstants.REGISTRY_CENTTER_ADDRESS);
+    Consumer consumer = new Consumer(publicZkUrl);
+
+    List<URL> urls = consumer.lookup(queryUrl);
+    if (urls != null && !urls.isEmpty()) {
+      zkUrl = publicZkUrl;
+    } else {
+      URL privateZkUrl = UrlUtils.getRegisterURL(GlobalConstants.PRIVATE_REGISTRY_CENTER_ADDRESS);
+      consumer = new Consumer(privateZkUrl);
+      urls = consumer.lookup(queryUrl);
+      if (urls != null && !urls.isEmpty()) {
+        zkUrl = privateZkUrl;
+      } else {
+        return null;
+      }
     }
-    return this;
+
+    return zkUrl;
+  }
+
+  /**
+   * 查找服务端所在的注册中心的实现方法(定时任务调用)
+   *
+   * @author sxp
+   * @since 2019/10/8
+   */
+  private void findZkUrlForTwoRc() {
+    URL zkUrl = findProviderZk();
+
+    if (zkUrl == null) {
+      logger.warn(cannotFindZkMsg);
+      findZkFuture = findZkExecutor.schedule(findZkTask, FIND_DELAY, TimeUnit.SECONDS);
+    } else {
+      if (!zkUrl.equals(zkRegistryURL)) {
+        // 注销客户端注册信息
+        unRegistry();
+
+        // 更新客户端注册中心
+        zkRegistryURL = zkUrl;
+        registry = registry.forTarget(zkUrl).build();
+
+        // 客户端重新注册
+        registry();
+
+        // 需要将缓冲中的服务列列表通知给this.listener
+        resolveServerInfoWithLock();
+      }
+    }
   }
 
   public void registry() {
@@ -174,6 +262,7 @@ public class ZookeeperNameResolver extends NameResolver {
 
       consumerIP = IpUtils.getIP4WithPriority();// 客户端的IP地址
       initServiceVersion();// 初始化客户端指定的服务的版本--必须放在注册之前
+      initGroup();//初始化客户端的GROUP,分组信息
 
       providersListener.init(this, this.registry);
       routersListener.init(this, this.registry);
@@ -184,6 +273,31 @@ public class ZookeeperNameResolver extends NameResolver {
       subscribeId = registry.register(params, providersListener, routersListener, configuratorsListener);
       consumerUrl = URL.valueOf(subscribeId);
       useInitProvidersData = true;
+    }
+  }
+
+  /**
+   * 初始化客户端group的值
+   */
+  private void initGroup(){
+    Properties properties = SystemConfig.getProperties();
+    //判断配置文件
+    if (properties == null) {
+      group = "";
+      return;
+    }
+
+    //判断配置文件中是否有KEY
+    String key = ConfigFileHelper.CONSUMER_KEY_PREFIX + GlobalConstants.CommonKey.GROUP;
+    if (!properties.containsKey(key)) {
+      group = "";
+      return;
+    }
+
+    //把配置文件中KEY的值,赋值
+    group = properties.getProperty(key);
+    if (group == null) {
+      group = "";
     }
   }
 
@@ -310,14 +424,16 @@ public class ZookeeperNameResolver extends NameResolver {
    */
   private void applyRoute() {
     Map<String, ServiceProvider> serviceProviders = serviceProviderMap;
-    for (Router route : routes) {
-      serviceProviders = route.route(serviceProviders, consumerUrl);
+    if (consumerUrl != null) {
+      for (Router route : routes) {
+        serviceProviders = route.route(serviceProviders, consumerUrl);
+      }
     }
     serviceProviderMap = serviceProviders;
   }
 
   /**
-   * 给定的host:port是否在被过滤的服务器列表中
+   * 给定的host:port是否在被过滤的服务器列表中（即是否在黑名单中）
    *
    * @author sxp
    * @since 2019/3/1
@@ -474,8 +590,8 @@ public class ZookeeperNameResolver extends NameResolver {
         }
 
         if (serviceProviderMap == null || serviceProviderMap.size() == 0) {
-          providersCountAfterLoadBalance = 0;
           if (providersListener.isProviderListEmpty()) {
+            providersCountAfterLoadBalance = 0;
             String msg = "注册中心上没有服务名称为[" + serviceName + "]的服务，请检查调用的服务接口名称是否正确！";
             throw new UnknownHostException(msg);
           }
@@ -572,17 +688,11 @@ public class ZookeeperNameResolver extends NameResolver {
     if (registry == null) {
       return;
     } else {
-      // 客户端指定的服务的版本
-      if (serviceVersion == null) {
-        serviceVersion = "";
-      }
-
       Map<String, String> params = new ConcurrentHashMap<String, String>();
       params.put(GlobalConstants.Consumer.Key.INTERFACE, serviceName);
       List<URL> urls = registry.lookup(params);
 
-      Map<String, ServiceProvider> newProviders = getProvidersByUrls(urls, serviceVersion);
-      resetAllProviders(newProviders);// 备份：当前服务接口的所有提供者
+      Map<String, ServiceProvider> newProviders = getProvidersByUrls(urls);
 
       serviceProviderMap.clear();
       serviceProviderMap.putAll(newProviders);
@@ -595,58 +705,214 @@ public class ZookeeperNameResolver extends NameResolver {
     }
   }
 
+
   /**
    * 根据监听到的URL组装服务提供者
    *
    * @author sxp
-   * @since  2017-8-11
+   * @since 2017-8-11
+   * @since 2019-6-21 实现主备服务器自动切换（有主服务器的情况下，客户端只能调用主服务器；所有主服务器不可用时，客户端可以调用备服务器）
+   * @since 2019-6-25 实现客户端服务端分组（客户端无分组：所有服务端可用；客户端有分组：只能选同一分组的服务端）
    */
-  public static Map<String, ServiceProvider> getProvidersByUrls(List<URL> urls, String serviceVersion) {
-    String version;
-    Map<String, ServiceProvider> newProviders = new HashMap<String, ServiceProvider>();
+  public Map<String, ServiceProvider> getProvidersByUrls(List<URL> urls) {
+    String targetVersion;
+    Map<String, ServiceProvider> providers = new HashMap<>();
 
     // 优先选择具有指定版本的服务(为空表示未指定版本)
     if (!StringUtils.isEmpty(serviceVersion)) {
-      for (URL url : urls) {
-        if (!RegistryConstants.GRPC_PROTOCOL.equalsIgnoreCase(url.getProtocol())) {
-          continue;
-        }
+      targetVersion = serviceVersion;
+      providers = getProvidersFunc(urls, targetVersion);
+    }
+
+    // 如果注册中心没有该版本的服务，则不限制版本重新选择服务提供者
+    if (providers.size() == 0) {
+      targetVersion = "";
+      providers = getProvidersFunc(urls, targetVersion);
+    }
+
+    return providers;
+  }
+
+  /**
+   * 将两段相差不多的代码提取为一个方法
+   *
+   * @author sxp
+   * @since 2019/7/3
+   */
+  private Map<String, ServiceProvider> getProvidersFunc(List<URL> urls, String targetVersion) {
+    boolean checkVersion = false;
+    if (StringUtils.isNotEmpty(targetVersion)) {
+      checkVersion = true;
+    }
+    String application = getConfig(GlobalConstants.COMMON_APPLICATION);
+    Map<String, ServiceProvider> providers = new HashMap<>();
+
+    String version, key;
+    boolean hasMaster = false;
+    ServiceProvider serviceProvider;
+    Object masterObj, groupObj;
+
+    for (URL url : urls) {
+      if (!RegistryConstants.GRPC_PROTOCOL.equalsIgnoreCase(url.getProtocol())) {
+        continue;
+      }
+
+      if (checkVersion) {
         version = url.getParameter(GlobalConstants.CommonKey.VERSION);
         if (version == null) {
           version = "";
         }
-        if (!version.equals(serviceVersion)) {
+        if (!version.equals(targetVersion)) {
           continue;
         }
-
-        ServiceProvider serviceProvider = new ServiceProvider();
-        serviceProvider = serviceProvider.fromURL(url);
-        ProvidersConfigUtils.resetServiceProviderProperties(serviceProvider);
-
-        newProviders.put(serviceProvider.getHost() + ":" + serviceProvider.getPort(),
-                serviceProvider);
       }
+
+      serviceProvider = new ServiceProvider();
+      masterObj = ProvidersConfigUtils.getProperty(serviceName, url.getIp(), url.getPort(), GlobalConstants.CommonKey.MASTER);
+      groupObj = ProvidersConfigUtils.getProperty(serviceName, url.getIp(), url.getPort(), GlobalConstants.CommonKey.GROUP);
+      serviceProvider = serviceProvider.fromURL(url, masterObj, groupObj);
+
+      ProvidersConfigUtils.resetServiceProviderProperties(serviceProvider);
+
+      if (serviceProvider.getMaster()) {
+        hasMaster = true;
+      }
+
+      key = serviceProvider.getHost() + ":" + serviceProvider.getPort();
+      providers.put(key, serviceProvider);
     }
 
-    // 如果注册中心没有该版本的服务，则不限制版本重新选择服务提供者
-    if (newProviders.size() == 0) {
-      for (URL url : urls) {
-        if (!RegistryConstants.GRPC_PROTOCOL.equalsIgnoreCase(url.getProtocol())) {
-          continue;
+    Map<String, ServiceProvider> allProviders = new HashMap<>(providers);
+    resetAllProviders(allProviders);// 备份：当前服务接口的所有提供者
+
+    // 根据分组进行筛选
+    providers = selectProvidersByGroup(providers);
+
+    // 根据master标志进行筛选
+    providers = chooseProvidersByMasterFlag(providers, hasMaster);
+
+    logger.debug("available provider service:" + providers);
+
+    return providers;
+  }
+
+  /**
+   * 实现主备服务器自动切换
+   * <p>
+   * 有主服务器的情况下，客户端只能调用主服务器；所有主服务器不可用时，客户端可以调用备服务器
+   * <p/>
+   *
+   * @author yulei
+   * @since 2019/6/20
+   * @since 2019/6/21 modify by sxp 微调
+   */
+  private static Map<String, ServiceProvider> chooseProvidersByMasterFlag(Map<String, ServiceProvider> providers, boolean hasMaster){
+    ServiceProvider serviceProvider;
+    Set<Map.Entry<String, ServiceProvider>> entrySet = providers.entrySet();
+
+    Map<String, ServiceProvider> newProviders = new HashMap<>(MapUtils.capacity(providers.size()));
+
+    for (Map.Entry<String, ServiceProvider> entry : entrySet) {
+      serviceProvider = entry.getValue();
+      if (hasMaster) {
+        // 有主服务器的情况下，客户端只能调用主服务器
+        if (serviceProvider.getMaster()) {
+          newProviders.put(entry.getKey(), serviceProvider);
         }
-
-        ServiceProvider serviceProvider = new ServiceProvider();
-        serviceProvider = serviceProvider.fromURL(url);
-        ProvidersConfigUtils.resetServiceProviderProperties(serviceProvider);
-
-        newProviders.put(serviceProvider.getHost() + ":" + serviceProvider.getPort(),
-                serviceProvider);
+      } else {
+        // 没有主服务器，说明所有服务器都是备服务器，无需判断，直接放入服务器列表
+        newProviders.put(entry.getKey(), serviceProvider);
       }
     }
 
     return newProviders;
   }
 
+
+  /**
+   * 根据分组筛选服务端列表
+   *
+   * <p>
+   * <br>
+   * 支持带优先级的服务分组功能，例如客户端的分组可以配置为: A1,A2;B1,B2;C1,C2    <br><br>
+   *
+   * 该配置的含义为：当前客户端优先访问分组为A1、A2的服务端。如果分组为A1、A2服务端不存在，访问分组为B1、B2的服务端；
+   * 如果分组为B1、B2的服务端也不存在，访问分组为C1、C2的服务端；如果分组为C1、C2的服务端也不存在，客户端报错。 <br><br>
+   *
+   * 该配置的英文分号(;)用来将不同优先级的服务端隔开。A1,A2为第一优先级，B1,B2为第二优先级，C1,C2为第三优先级。
+   * 客户端优先访问高优先级的服务端。
+   * </p>
+   *
+   * @author yulei
+   * @since 2019/8/16
+   * @since 2019/8/21 modify by sxp 原来的代码逻辑比较复杂，换一种容易理解的方法来实现
+   */
+  private Map<String, ServiceProvider> selectProvidersByGroup(Map<String, ServiceProvider> providers) {
+    if (StringUtils.isEmpty(group)) {
+      return providers;
+    }
+
+    String[] groupsArray = group.split(";");
+    int size = groupsArray.length;
+    if (size == 0) {
+      return providers;
+    }
+
+    Map<String, ServiceProvider> newProviders = new HashMap<>(MapUtils.capacity(providers.size()));
+    Set<Map.Entry<String, ServiceProvider>> entrySet = providers.entrySet();
+
+    String groups, group, serverGroup;
+    String[] groupArr;
+    ServiceProvider provider;
+    boolean filtered;
+    List<String> groupList = new ArrayList<>();
+
+    for (int i = 0; i < size; i++) {
+      groups = groupsArray[i];
+      groups = StringUtils.trim(groups);
+      if (StringUtils.isEmpty(groups)) {
+        continue;
+      }
+
+      // 将当前优先级内的分组存放到groupList
+      groupList.clear();
+      groupArr = groups.split(",");
+
+      for (int j = 0; j < groupArr.length; j++) {
+        group = groupArr[j];
+        group = StringUtils.trim(group);
+        if (StringUtils.isNotEmpty(group)) {
+          groupList.add(group);
+        }
+      }
+
+      if (groupList.isEmpty()) {
+        continue;
+      }
+
+      // 根据分组找服务端
+      for (Map.Entry<String, ServiceProvider> entry : entrySet) {
+        provider = entry.getValue();
+        serverGroup = provider.getGroup();
+        serverGroup = StringUtils.trim(serverGroup);
+
+        if (StringUtils.isNotEmpty(serverGroup) && groupList.contains(serverGroup)) {
+          // 判断当前服务端是否在黑名单中
+          filtered = isInfilteredProviders(provider.getHost(), provider.getPort());
+          if (!filtered) {
+            newProviders.put(entry.getKey(), provider);
+          }
+        }
+      }
+
+      // 在当前优先级中找到服务端就不需要继续找了
+      if (!newProviders.isEmpty()) {
+        break;
+      }
+    }
+
+    return newProviders;
+  }
 
   @GuardedBy("this")
   private void resolve() {
@@ -670,6 +936,13 @@ public class ZookeeperNameResolver extends NameResolver {
     }
 
     //----begin----自动注销zk中的Consumer信息----dengjq
+
+    if (findZkFuture != null) {
+      findZkFuture.cancel(false);
+    }
+    if (findZkExecutor != null) {
+      findZkExecutor.shutdown();
+    }
 
     unRegistry();
 
@@ -705,6 +978,14 @@ public class ZookeeperNameResolver extends NameResolver {
     this.serviceVersion = serviceVersion;
   }
 
+  public String getGroup(){
+    return group;
+  }
+
+  public void setGroup(String group){
+    this.group = group;
+  }
+
   @Override
   public String getServiceName() {
     return serviceName;
@@ -728,6 +1009,7 @@ public class ZookeeperNameResolver extends NameResolver {
     return providersListener;
   }
 
+  @Override
   public Map<String, ServiceProvider> getAllProviders() {
     return allProviders;
   }

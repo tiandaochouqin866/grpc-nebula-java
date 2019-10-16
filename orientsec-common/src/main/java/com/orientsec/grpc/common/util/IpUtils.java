@@ -19,6 +19,8 @@ package com.orientsec.grpc.common.util;
 
 import com.orientsec.grpc.common.exception.BusinessException;
 import com.orientsec.grpc.common.resource.SystemConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -29,8 +31,6 @@ import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Properties;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
 import static com.orientsec.grpc.common.constant.GlobalConstants.COMMON_LOCALHOST_IP;
@@ -42,7 +42,7 @@ import static com.orientsec.grpc.common.constant.GlobalConstants.COMMON_LOCALHOS
  * @since V1.0 2017-3-27
  */
 public final class IpUtils {
-  private static final Logger logger = Logger.getLogger(IpUtils.class.getName());
+  private static final Logger logger = LoggerFactory.getLogger(IpUtils.class);
 
   public static final String LOCALHOST = "127.0.0.1";
   public static final String ANYHOST = "0.0.0.0";
@@ -96,7 +96,7 @@ public final class IpUtils {
 
         // 检查配置的IP是否在网卡中
         if (!validIps.contains(ip)) {
-          logger.warning("配置文件中指定的服务注册IP地址[" + ip + "]，不属于本机网卡中的IP地址，忽略该配置！");
+          logger.warn("配置文件中指定的服务注册IP地址[" + ip + "]，不属于本机网卡中的IP地址，忽略该配置！");
           ip = null;
         }
       }
@@ -224,7 +224,7 @@ public final class IpUtils {
       Enumeration<NetworkInterface> allNetInterfaces = NetworkInterface.getNetworkInterfaces();
 
       if (allNetInterfaces == null) {
-        logger.log(Level.SEVERE, "获取NetworkInterface.getNetworkInterfaces失败!");
+        logger.error("获取NetworkInterface.getNetworkInterfaces失败!");
         return ipList;
       }
 
@@ -244,7 +244,7 @@ public final class IpUtils {
         }
       }
     } catch (SocketException e) {
-      logger.log(Level.SEVERE, e.getMessage(), e);
+      logger.error(e.getMessage(), e);
     }
 
     return ipList;
@@ -325,13 +325,13 @@ public final class IpUtils {
       InetAddress address = InetAddress.getByName(ip);
       int timeout = 2000;// 2秒超时时间
 
-      logger.log(Level.INFO, "正在测试IP地址[" + ip + "]的连通性...");
+      logger.info("正在测试IP地址[" + ip + "]的连通性...");
 
       isReachable = address.isReachable(timeout);
 
     } catch (Exception e) {
       isReachable = false;
-      logger.log(Level.INFO, "IP地址[" + ip + "]无法联通", e);
+      logger.info("IP地址[" + ip + "]无法联通", e);
     }
 
     return isReachable;

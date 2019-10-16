@@ -18,7 +18,6 @@ package com.orientsec.grpc.consumer.core;
 
 import com.orientsec.grpc.common.exception.BusinessException;
 import com.orientsec.grpc.common.resource.SystemSwitch;
-import com.orientsec.grpc.common.util.DebugUtils;
 import com.orientsec.grpc.common.util.IpUtils;
 import com.orientsec.grpc.consumer.common.ConsumerConstants;
 import com.orientsec.grpc.consumer.task.LookupTask;
@@ -70,16 +69,9 @@ public class DefaultConsumerServiceRegistryImpl implements ConsumerServiceRegist
    * 服务的版本
    */
   private String version;
-  private String registryIP;
-  private int registryPort;
   private URL targetUrl;
 
   public DefaultConsumerServiceRegistryImpl() {
-  }
-
-  public DefaultConsumerServiceRegistryImpl(String ip, int port) {
-    this.registryIP = ip;
-    this.registryPort = port;
   }
 
   public DefaultConsumerServiceRegistryImpl(URL targetUrl) {
@@ -93,53 +85,6 @@ public class DefaultConsumerServiceRegistryImpl implements ConsumerServiceRegist
   public Consumer getConsumer() {
     return consumer;
 
-  }
-
-  /**
-   * 获取注册IP
-   *
-   * @author sxp
-   * @since 2018/12/1
-   */
-  public String getRegistryIP() {
-    return registryIP;
-  }
-
-  /**
-   * 设置注册IP
-   *
-   * @author sxp
-   * @since 2018/12/1
-   */
-  public void setRegistryIP(String registryIP) {
-    this.registryIP = registryIP;
-  }
-
-  /**
-   * 获取注册端口
-   *
-   * @author sxp
-   * @since 2018/12/1
-   */
-  public int getRegistryPort() {
-    return registryPort;
-  }
-
-  /**
-   * 设置注册端口
-   *
-   * @author sxp
-   * @since 2018/12/1
-   */
-  public void setRegistryPort(int registryPort) {
-    this.registryPort = registryPort;
-  }
-
-
-  public ConsumerServiceRegistry forHost(String registryIP, int registryPort) {
-    this.registryIP = registryIP;
-    this.registryPort = registryPort;
-    return this;
   }
 
   public ConsumerServiceRegistry forTarget(URL targetUrl) {
@@ -163,14 +108,12 @@ public class DefaultConsumerServiceRegistryImpl implements ConsumerServiceRegist
     try {
       if (targetUrl != null) {
         consumer = new Consumer(targetUrl);
-      } else if (registryIP != null && registryIP.length() > 0 && registryPort > 0) {
-        consumer = new Consumer(registryIP, registryPort);
       } else {
         consumer = new Consumer();
       }
       consumerInit = true;
     } catch (PropertiesException e) {
-      e.printStackTrace();
+      logger.error(e.getMessage(), e);
     }
 
   }
@@ -192,11 +135,6 @@ public class DefaultConsumerServiceRegistryImpl implements ConsumerServiceRegist
 
     if (!SystemSwitch.CONSUMER_ENABLED) {
       return "";
-    }
-
-    long begin = 0L;
-    if (DebugUtils.DEBUG) {
-      begin = System.currentTimeMillis();
     }
 
     this.consumerParmas = consumerParams;
@@ -230,8 +168,6 @@ public class DefaultConsumerServiceRegistryImpl implements ConsumerServiceRegist
     Map<String, Map<String, Object>> allConsumersInitConfig = ConsumerConfigUtils.getAllConsumersInitConfig();
     allConsumersInitConfig.put(uuid, new HashMap<>(consumerParams));
 
-    DebugUtils.logElapsedTime(begin, "com.orientsec.grpc.consumer.core.DefaultConsumerServiceRegistryImpl.register");
-
     return uuid;
   }
 
@@ -244,11 +180,6 @@ public class DefaultConsumerServiceRegistryImpl implements ConsumerServiceRegist
   public void unSubscribe(String subscribeId) throws BusinessException {
     if (!SystemSwitch.CONSUMER_ENABLED) {
       return;
-    }
-
-    long begin = 0L;
-    if (DebugUtils.DEBUG) {
-      begin = System.currentTimeMillis();
     }
 
     Map<String, Map<String, Object>> allConsumersListeners = ConsumerConfigUtils.getAllConsumersListeners();
@@ -288,7 +219,6 @@ public class DefaultConsumerServiceRegistryImpl implements ConsumerServiceRegist
       ConsumerConfigUtils.releaseConsumerConfig(subscribeId);
     }
 
-    DebugUtils.logElapsedTime(begin, "com.orientsec.grpc.consumer.core.DefaultConsumerServiceRegistryImpl.unSubscribe");
   }
 
   /**
@@ -298,11 +228,6 @@ public class DefaultConsumerServiceRegistryImpl implements ConsumerServiceRegist
    * @since 2018/12/1
    */
   public List<URL> lookup(Map<String, String> providerParams) throws BusinessException {
-    long begin = 0L;
-    if (DebugUtils.DEBUG) {
-      begin = System.currentTimeMillis();
-    }
-
     LookupTask lookupTask = new LookupTask(this, providerParams);
     List<URL> providersUrls;
     try {
@@ -311,8 +236,6 @@ public class DefaultConsumerServiceRegistryImpl implements ConsumerServiceRegist
       logger.error(e.getMessage(), e);
       throw new BusinessException(e.getMessage(), e);
     }
-
-    DebugUtils.logElapsedTime(begin, "com.orientsec.grpc.consumer.core.DefaultConsumerServiceRegistryImpl.lookup");
 
     return providersUrls;
   }

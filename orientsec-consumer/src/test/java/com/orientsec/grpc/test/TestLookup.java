@@ -93,7 +93,7 @@ public class TestLookup {
 
     String[] ipAndPort = address.split(":");
     String registryIp = null;
-    int registryPort = GlobalConstants.ServiceAddrKey.ZOOKEEPER.DEFAULT_PORT;
+    int registryPort = GlobalConstants.Zookeeper.DEFAULT_PORT;
     if (ipAndPort.length == 2){
       registryIp = ipAndPort[0];
       registryPort = Integer.valueOf(ipAndPort[1]);
@@ -102,10 +102,10 @@ public class TestLookup {
     }
     URL url = null;
     if (index < 0){
-      url = new URL(GlobalConstants.ServiceAddrKey.ZOOKEEPER.PROTOCOL_PREFIX,
+      url = new URL(GlobalConstants.Zookeeper.PROTOCOL_PREFIX,
               registryIp,registryPort);
     }else{
-      url = new URL(GlobalConstants.ServiceAddrKey.ZOOKEEPER.PROTOCOL_PREFIX,
+      url = new URL(GlobalConstants.Zookeeper.PROTOCOL_PREFIX,
               registryIp,registryPort,parameters);
     }
     return url;

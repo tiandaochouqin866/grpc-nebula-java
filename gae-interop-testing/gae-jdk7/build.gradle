@@ -16,8 +16,15 @@ description = 'gRPC: gae interop testing (jdk7)'
 buildscript {
     // Configuration for building
     repositories {
-        jcenter()    // Bintray's repository - a fast Maven Central mirror & more
+        mavenLocal()
         mavenCentral()
+        maven { url "https://plugins.gradle.org/m2/" }
+        maven { url INTRANET_MAVEN_URL
+            credentials {
+                username INTRANET_MAVEN_USERNAME
+                password INTRANET_MAVEN_PASSWORD
+            }
+        }
     }
     dependencies {
         classpath 'com.google.cloud.tools:appengine-gradle-plugin:1.3.5'

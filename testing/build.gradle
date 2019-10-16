@@ -14,7 +14,7 @@ dependencies {
         // prefer 20.0 from libraries instead of 19.0
         exclude group: 'com.google.guava', module: 'guava'
     }
-    
+
     // Use compileOnly to avoid dependencyConvergence problem with the Guava
     // pulled in via Truth, for users that don't use Truth. Truth requires a
     // more up-to-date Guava than we support elsewhere, which would trigger

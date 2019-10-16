@@ -28,7 +28,6 @@ import com.orientsec.grpc.registry.common.URL;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -36,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * @author dengjianqian
  * @since 2018-8-10 modify by sxp 修正bug：当客户端处在黑名单中，启动客户端后再将黑名单拿掉，客户端还是不能连上服务端
+ * @since 2019-7-25 modify by sxp 修正bug：有两个服务端AB的情况下，先将客户端设置为服务端A的黑名单，然后再删除黑名单，会出现客户端无法再调用服务端A
  */
 public class RoutersListener extends  AbstractListener implements ConsumerListener {
 
@@ -58,15 +58,11 @@ public class RoutersListener extends  AbstractListener implements ConsumerListen
     zookeeperNameResolver.getRoutes().clear();
     zookeeperNameResolver.setRoutes(routes);
 
-
-
-    Map<String, ServiceProvider> providers = zookeeperNameResolver.getServiceProviderMap();
-    if (providers == null || providers.size() == 0) {
-      String serviceName = zookeeperNameResolver.getServiceName();
-      Object lock = getZookeeperNameResolver().getLock();
-      synchronized (lock) {
-        zookeeperNameResolver.getAllByName(serviceName);
-      }
+    // 只要路由规则发生变化，就需要更新服务端列表
+    String serviceName = zookeeperNameResolver.getServiceName();
+    Object lock = getZookeeperNameResolver().getLock();
+    synchronized (lock) {
+      zookeeperNameResolver.getAllByName(serviceName);
     }
 
     // 路由规则变化后，重置providersForLoadBalance

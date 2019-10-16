@@ -64,6 +64,73 @@ public class GlobalConstants {
   public static final String REGISTRY_CENTTER_ADDRESS = "zookeeper.host.server";
 
   /**
+   * 私有注册中心地址key
+   */
+  public static final String PRIVATE_REGISTRY_CENTER_ADDRESS = "zookeeper.private.host.server";
+
+  /**
+   * 客户端公共、私有注册中心
+   */
+  public static final String PUBLIC_PRIVATE_REGISTRY_CENTER = "public,private";
+
+  /**
+   * 私有注册中心注册根路径key
+   */
+  public static final String PRIVATE_REGISTRY_CENTER_ROOT = "zookeeper.private.root";
+
+  /**
+   * 私有注册中心ACL用户名
+   */
+  public static final String PRIVATE_REGISTRY_CENTER_ACLUSER = "zookeeper.private.acl.username";
+
+  /**
+   * 私有注册中心ACL密码
+   */
+  public static final String PRIVATE_REGISTRY_CENTER_ACLPWD = "zookeeper.private.acl.password";
+
+  /**
+   * 公共服务名称列表key
+   */
+  public final static String PUBLIC_SERVICE_LIST = "public.service.list";
+
+  /**
+   * 私有服务名称列表key
+   */
+  public final static String PRIVATE_SERVICE_LIST = "private.service.list";
+
+  public final static String SERVICE_TYPE = "service.type";
+
+  /**
+   * 服务端额外使用的注册中心前缀
+   */
+  public static final String SERVICE_EXTRA_RC_PREFIX = "zookeeper.service-register-";
+
+  /**
+   * 服务端额外使用的注册中心地址后缀
+   */
+  public static final String SERVICE_EXTRA_RC_ADDR_SUFFIX = ".host.server";
+
+  /**
+   * 服务端额外使用的注册中心根路径后缀
+   */
+  public static final String SERVICE_EXTRA_RC_ROOTPATH_SUFFIX = ".root";
+
+  /**
+   * 服务端额外使用的注册中心ACL用户后缀
+   */
+  public static final String SERVICE_EXTRA_RC_ACLUSER_SUFFIX = ".acl.username";
+
+  /**
+   * 服务端额外使用的注册中心ACL密码后缀
+   */
+  public static final String SERVICE_EXTRA_RC_ACLPWD_SUFFIX = ".acl.password";
+
+  /**
+   * 注册中心默认注册根路径
+   */
+  public static final String DEFAULT_ROOTPATH = "/Application/grpc";
+
+  /**
    * 注册中心连接超时时间
    */
   public static final String REGISTRY_CONNECTIONTIMEOUT = "zookeeper.connectiontimeout";
@@ -203,13 +270,11 @@ public class GlobalConstants {
     return ret;
   }
 
-  public static class ServiceAddrKey {
-    public static class ZOOKEEPER {
-      public static final String PROTOCOL_PREFIX = "zookeeper";
-      public static final int DEFAULT_PORT = 2181;
-    }
-
+  public static class Zookeeper {
+    public static final String PROTOCOL_PREFIX = "zookeeper";
+    public static final int DEFAULT_PORT = 2181;
   }
+
 
   public static class CommonKey {
 
@@ -293,6 +358,38 @@ public class GlobalConstants {
      */
     public static final String PROJECT = "project";
 
+    /**
+     * 配置信息中“master”的key
+     */
+    public static final String MASTER = "master";
+
+    public static final String GROUP = "group";
+
+    /**
+     * 是否启用熔断机制
+     */
+    public static final String BREAKER_ENABLED = "common.breaker.enabled";
+
+    /**
+     * 熔断机制统计周期
+     */
+    public static final String BREAKER_PERIOD = "common.breaker.statistics.period.timeInMilliseconds";
+
+    /**
+     * 至少请求多少次才会触发熔断机制
+     */
+    public final static String BREAKER_REQUEST_THRESHOLD = "common.breaker.requestVolumeThreshold";
+
+    /**
+     * 熔断器打开的错误百分比阈值
+     */
+    public final static String BREAKER_ERROR_PERCENTAGE = "common.breaker.errorThresholdPercentage";
+
+    /**
+     * 熔断器打开后经过多长时间允许一次请求尝试执行
+     */
+    public final static String BREAKER_SLEEPWINDOWINMiLLISECONDS = "common.breaker.sleepWindowInMilliseconds";
+
   }
 
   /**
@@ -313,6 +410,11 @@ public class GlobalConstants {
     public static final int DEFAULT_CONNECTIONS_NUM = 20;
 
     /**
+     * 服务端provider.master参数默认值，表示服务是否是主服务
+     */
+    public static final Boolean DEFAULT_MASTER = true;
+
+    /**
      * Key值相关的常量
      */
     public static class Key extends CommonKey {
@@ -330,6 +432,7 @@ public class GlobalConstants {
        * 服务是否处于访问保护状态
        */
       public static final String ACCESS_PROTECTED = "access.protected";
+
 
     }
   }
@@ -447,6 +550,29 @@ public class GlobalConstants {
        */
       public static final String PRINTSERVICECHAIN_ENABLED = "printServiceChain.enabled";
     }
+  }
+
+  /**
+   * 服务端状态(熔断机制使用)
+   */
+  public static class ProviderStatus {
+    /**
+     * 熔断
+     */
+    public static final String BREAKER = "breaker";
+
+    /**
+     * 半熔断
+     */
+    public static final String HALF_BREAKER = "half-breaker";
+  }
+
+  /**
+   * 服务类型
+   */
+  public static class ServiceType {
+    public static final String PUBLIC = "public";
+    public static final String PRIVATE = "private";
   }
 
 }

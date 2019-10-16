@@ -81,6 +81,7 @@ public final class URL implements Serializable {
   private final int port;
   private final String path;
   private final Map<String, String> parameters;
+  private String id;
 
   private transient volatile  Map<String, Number> numbers;
   private transient volatile  Map<String, URL> urls;
@@ -90,6 +91,7 @@ public final class URL implements Serializable {
   private transient volatile  String parameter;
   private transient volatile  String string;
 
+
   protected URL() {
     this.protocol = null;
     this.username = null;
@@ -98,11 +100,13 @@ public final class URL implements Serializable {
     this.port = 0;
     this.path = null;
     this.parameters = null;
+    this.id = null;
   }
 
   public URL(String protocol, String host, int port) {
     this(protocol, null, null, host, port, null, (Map<String, String>) null);
   }
+
 
   public URL(String protocol, String host, int port, String[] pairs) { // 变长参数...与下面的path参数冲突，改为数组
     this(protocol, null, null, host, port, null, CollectionUtils.toStringMap(pairs));
@@ -114,6 +118,7 @@ public final class URL implements Serializable {
   public URL(String protocol, String host, int port, Map<String, String> parameters) {
     this(protocol, null, null, host, port, getPathFromParameters(parameters), parameters);
   }
+
 
   /**
    * 从parameters中取interface的属性值赋值给path
@@ -155,7 +160,7 @@ public final class URL implements Serializable {
 
   /**
    * construct a URL class.
-   * @param protocol 协议，包括grpc,dubbo等
+   * @param protocol 协议
    * @param username  用户名
    * @param password  用户密码
    * @param host  主机名
@@ -166,7 +171,7 @@ public final class URL implements Serializable {
   public URL(String protocol, String username, String password,
              String host, int port, String path, Map<String, String> parameters) {
     if ((username == null || username.length() == 0)
-            && password != null && password.length() > 0) {
+      && password != null && password.length() > 0) {
       throw new IllegalArgumentException("Invalid url, password without username!");
     }
     this.protocol = protocol;
@@ -285,11 +290,11 @@ public final class URL implements Serializable {
    */
   public String getAuthority() {
     if ((username == null || username.length() == 0)
-            && (password == null || password.length() == 0)) {
+      && (password == null || password.length() == 0)) {
       return null;
     }
     return (username == null ? "" : username)
-            + ":" + (password == null ? "" : password);
+      + ":" + (password == null ? "" : password);
   }
 
   public String getHost() {
@@ -361,7 +366,7 @@ public final class URL implements Serializable {
 
   private String appendDefaultPort(String address, int defaultPort) {
     if (address != null && address.length() > 0
-            && defaultPort > 0) {
+      && defaultPort > 0) {
       int i = address.indexOf(':');
       if (i < 0) {
         return address + ":" + defaultPort;
@@ -938,7 +943,7 @@ public final class URL implements Serializable {
 
   public URL addParameter(String key, String value) {
     if (key == null || key.length() == 0
-            || value == null || value.length() == 0) {
+      || value == null || value.length() == 0) {
       return this;
     }
     // 如果没有修改，直接返回。
@@ -953,7 +958,7 @@ public final class URL implements Serializable {
 
   public URL addParameterIfAbsent(String key, String value) {
     if (key == null || key.length() == 0
-            || value == null || value.length() == 0) {
+      || value == null || value.length() == 0) {
       return this;
     }
     if (hasParameter(key)) {
@@ -1139,7 +1144,7 @@ public final class URL implements Serializable {
       boolean first = true;
       for (Map.Entry<String, String> entry : new TreeMap<String, String>(getParameters()).entrySet()) {
         if (entry.getKey() != null && entry.getKey().length() > 0
-                && (includes == null || includes.contains(entry.getKey()))) {
+          && (includes == null || includes.contains(entry.getKey()))) {
           if (first) {
             if (concat) {
               buf.append("?");
@@ -1416,6 +1421,11 @@ public final class URL implements Serializable {
     } else if (!username.equals(other.username))
       return false;
     return true;
+  }
+
+  public String getId() {
+    String value = getParameter("id");
+    return value;
   }
 
 }

@@ -22,7 +22,7 @@ package com.orientsec.grpc.registry.support;
 import com.orientsec.grpc.registry.NotifyListener;
 import com.orientsec.grpc.registry.common.Constants;
 import com.orientsec.grpc.registry.common.URL;
-import com.orientsec.grpc.registry.common.utils.ConcurrentHashSet;
+import com.orientsec.grpc.common.collect.ConcurrentHashSet;
 import com.orientsec.grpc.registry.common.utils.NamedThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -199,23 +199,17 @@ public abstract class FailbackRegistry extends AbstractRegistry {
     } catch (Exception e) {
       Throwable t = e;
 
-      List<URL> urls = getCacheUrls(url);
-      if (urls != null && urls.size() > 0) {
-        notify(url, listener, urls);
-        logger.error("Failed to subscribe " + url + ", Using cached list: " + urls + " from cache file: " + getUrl().getParameter(Constants.FILE_KEY, System.getProperty("user.home") + "/dubbo-registry-" + url.getHost() + ".cache") + ", cause: " + t.getMessage(), t);
-      } else {
-        // 如果开启了启动时检测，则直接抛出异常
-        boolean check = getUrl().getParameter(Constants.CHECK_KEY, true)
-                && url.getParameter(Constants.CHECK_KEY, true);
-        boolean skipFailback = t instanceof SkipFailbackWrapperException;
-        if (check || skipFailback) {
-          if (skipFailback) {
-            t = t.getCause();
-          }
-          throw new IllegalStateException("Failed to subscribe " + url + ", cause: " + t.getMessage(), t);
-        } else {
-          logger.error("Failed to subscribe " + url + ", waiting for retry, cause: " + t.getMessage(), t);
+      // 如果开启了启动时检测，则直接抛出异常
+      boolean check = getUrl().getParameter(Constants.CHECK_KEY, true)
+              && url.getParameter(Constants.CHECK_KEY, true);
+      boolean skipFailback = t instanceof SkipFailbackWrapperException;
+      if (check || skipFailback) {
+        if (skipFailback) {
+          t = t.getCause();
         }
+        throw new IllegalStateException("Failed to subscribe " + url + ", cause: " + t.getMessage(), t);
+      } else {
+        logger.error("Failed to subscribe " + url + ", waiting for retry, cause: " + t.getMessage(), t);
       }
 
       // 将失败的订阅请求记录到失败列表，定时重试

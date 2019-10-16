@@ -21,6 +21,9 @@ import com.orientsec.grpc.common.constant.GlobalConstants;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 
 /**
@@ -120,7 +123,12 @@ public final class PropertiesUtils {
               + filePath + "]是否正确！");
     }
 
-    p.load(is);
+    // 解决参数值中文乱码问题
+    // p.load(is);
+    Reader reader = new InputStreamReader(is, StandardCharsets.UTF_8);
+    p.load(reader);
+
+    reader.close();
     is.close();
 
     return p;
@@ -237,4 +245,29 @@ public final class PropertiesUtils {
 
     return result;
   }
+
+  /**
+   * 从配置文件中读取key的value值为boolean类型的值，如果没有返回默认值
+   *
+   * @atuher yulei
+   * @since 2019/8/21
+   */
+  public static boolean getValidBooleanValue(Properties properties, String key, boolean defaultValue) {
+    if (properties == null) {
+      return defaultValue;
+    }
+
+    boolean result = defaultValue;
+
+    if (properties.containsKey(key)) {
+      String value = properties.getProperty(key);
+      if (value != null) {
+        value = value.trim();
+      }
+      result = Boolean.parseBoolean(value);
+    }
+
+    return result;
+  }
+
 }

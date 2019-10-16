@@ -58,6 +58,7 @@ public class RegistryTask {
   private static final Logger logger = LoggerFactory.getLogger(RegistryTask.class);
   ProviderServiceRegistryImpl caller;
 
+
   /**
    * 服务提供者的配置文件信息
    */
@@ -349,15 +350,20 @@ public class RegistryTask {
 
     // route://0.0.0.0/com.foo.BarService?category=routers&dynamic=true&force=true&name=my-rule-001
     // &priority=0&router=condition&rule==> host != 172.22.3.91&runtime=false
+
+    String ip = IpUtils.getIP4WithPriority();
+    String name = "access-protected-rule-" + ip;
+    String rule = "host = * => host != " + ip;
+
     Map<String, String> parameters = new HashMap<String, String>();
     parameters.put(GlobalConstants.CommonKey.INTERFACE, interfaceName);
     parameters.put(RegistryConstants.CATEGORY_KEY, RegistryConstants.ROUTERS_CATEGORY);
     parameters.put(RegistryConstants.DYNAMIC_KEY, "true");// 临时节点
     parameters.put(Constants.FORCE_KEY, "true");// 当路由结果为空时，是否强制执行
-    parameters.put(GlobalConstants.NAME, "access-protected-rule");
+    parameters.put(GlobalConstants.NAME, name);
     parameters.put(Constants.PRIORITY_KEY, String.valueOf(Integer.MAX_VALUE));// 优先级越大越靠前执行
     parameters.put("router", "condition");
-    parameters.put(Constants.RULE_KEY, "=> host != " + IpUtils.getIP4WithPriority());
+    parameters.put(Constants.RULE_KEY, rule);
     parameters.put(Constants.RUNTIME_KEY, "false");
 
     return new URL(RegistryConstants.ROUTER_PROTOCOL, Constants.ANYHOST_VALUE, 0, parameters);

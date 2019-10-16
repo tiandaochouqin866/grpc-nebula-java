@@ -16,11 +16,11 @@
 
 package io.grpc;
 
+import javax.annotation.concurrent.ThreadSafe;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import javax.annotation.concurrent.ThreadSafe;
 
 /**
  * Server for listening for and dispatching incoming calls. It is not expected to be implemented by
@@ -134,4 +134,14 @@ public abstract class Server {
    * @since 1.0.0
    */
   public abstract void awaitTermination() throws InterruptedException;
+
+  /**
+   * 获取注册处理器
+   *
+   * @author sxp
+   * @since 2019/7/16
+   */
+  public HandlerRegistry getRegistry() {
+    return null;
+  };
 }

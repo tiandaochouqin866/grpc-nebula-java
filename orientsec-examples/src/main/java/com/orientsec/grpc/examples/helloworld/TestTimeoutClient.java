@@ -61,7 +61,7 @@ public class TestTimeoutClient {
     try {
       HelloRequest request = HelloRequest.newBuilder().setName(name).build();
       HelloReply response = blockingStub.sayHello(request);
-      System.out.println(response.getMessage());
+      System.out.println("Get response: " + response.getMessage());
     } catch (Exception e) {
       logger.error(e.getMessage(), e);
     }
@@ -87,7 +87,7 @@ public class TestTimeoutClient {
       logger.info("client greets: 2 --end--   ");
 
 
-      for (int i = 0; i < 100; i++) {
+      for (int i = 0; i < 5; i++) {
         client.greet(names.get(random.nextInt(size)));
       }
     } finally {

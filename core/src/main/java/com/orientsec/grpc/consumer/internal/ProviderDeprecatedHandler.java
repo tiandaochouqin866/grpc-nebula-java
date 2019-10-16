@@ -130,9 +130,11 @@ public class ProviderDeprecatedHandler {
               providerUpdatedMap.put(providerKey, true);
 
               if (newDeprecated) {
-                logger.warn("监听到[" + serviceName + "]的[是否过时]配置项，参数值为[" + newDeprecated + "]");
+                logger.warn("监听到[" + serviceName + "]服务实例[" + providerKey
+                        + "]的[是否过时]配置项，参数值为[" + newDeprecated + "]");
               } else {
-                logger.info("监听到[" + serviceName + "]的[是否过时]配置项，参数值为[" + newDeprecated + "]");
+                logger.info("监听到[" + serviceName + "]服务实例[" + providerKey
+                        + "]的[是否过时]配置项，参数值为[" + newDeprecated + "]");
               }
             }
           }
@@ -181,7 +183,8 @@ public class ProviderDeprecatedHandler {
 
       providerUpdatedMap.put(providerKey, false);
 
-      logger.info("将[" + serviceName + "]的[是否过时]参数值恢复为默认值[" + initDeprecated + "]");
+      logger.info("将[" + serviceName + "]服务实例[" + providerKey
+              + "]的[是否过时]参数值恢复为默认值[" + initDeprecated + "]");
     }
   }
 

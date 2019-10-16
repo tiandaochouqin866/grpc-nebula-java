@@ -282,10 +282,10 @@ public class RouteGuideClient {
     String target = "zookeeper:///" + RouteGuideGrpc.SERVICE_NAME;
     RouteGuideClient client = new RouteGuideClient(target);
 
-    String mode = "4";
+    String mode = "3";
 
-    long interval = 10000L;// 时间单位为毫秒
-    long LOOP_NUM = 1;
+    long interval = 1000L;// 时间单位为毫秒
+    long LOOP_NUM = 2 * 86400L * 1000 / interval;;
 
     if (args.length >= 1) {
       if (args[0].equals("1") || args[0].equals("2") || args[0].equals("3") || args[0].equals("4")) {

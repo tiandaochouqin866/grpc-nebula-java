@@ -18,10 +18,9 @@
 
 package com.orientsec.grpc.registry.service;
 
-import com.orientsec.grpc.common.constant.GlobalConstants;
+import com.orientsec.grpc.common.resource.RegisterCenterConf;
 import com.orientsec.grpc.registry.NotifyListener;
 import com.orientsec.grpc.registry.Registry;
-import com.orientsec.grpc.registry.RegistryFactory;
 import com.orientsec.grpc.registry.common.URL;
 import com.orientsec.grpc.registry.common.utils.UrlUtils;
 import com.orientsec.grpc.registry.exception.PropertiesException;
@@ -37,35 +36,29 @@ import java.util.List;
 public class Consumer {
   private static Logger logger = LoggerFactory.getLogger(Consumer.class);
 
-  private RegistryFactory registryFactory = null;
-
+  private ZookeeperRegistryFactory registryFactory = null;
   private URL url;
-
-  public URL getUrl() {
-    return this.url;
-  }
 
   public void setUrl(URL url) {
     this.url = url;
   }
 
-  public Consumer() throws PropertiesException {
-    logger.debug("Consumer Constructor");
-    this.url = UrlUtils.fromConfig();
-    if (this.url == null){
-      logger.error("Cannot load properties(or properties err):" + GlobalConstants.CONFIG_FILE_PATH);
-      throw new PropertiesException("Cannot load properties(or properties err):" + GlobalConstants.CONFIG_FILE_PATH);
-    }
-    init();
-  }
-
   public Consumer(URL url) {
+    //这个url是要注册目标url
     this.url = url;
     init();
   }
 
-  public Consumer(String ip, int port) {
-    url = new URL("zookeeper", ip, port);
+  public Consumer() throws PropertiesException {
+    // 配置文件中非空注册中心的key值
+    String key = RegisterCenterConf.getRcProKey();
+
+    this.url = UrlUtils.getRegisterURL(key);
+    if (this.url == null) {
+      String msg = "无法获取注册中心地址配置信息";
+      logger.error(msg);
+      throw new PropertiesException(msg);
+    }
     init();
   }
 
@@ -75,7 +68,10 @@ public class Consumer {
   public void init() {
     ZookeeperTransporter zookeeperTransporter = new CuratorZookeeperTransporter();
     registryFactory = new ZookeeperRegistryFactory();
-    ((ZookeeperRegistryFactory) registryFactory).setZookeeperTransporter(zookeeperTransporter);
+    if (registryFactory != null) {
+      registryFactory.setZookeeperTransporter(zookeeperTransporter);
+    }
+
   }
 
   /**
@@ -84,7 +80,7 @@ public class Consumer {
    * @param url 注册url，provider,router,configurator均使用该url，通过category注册到不同目录下
    */
   public void registerService(URL url) {
-    Registry registry = registryFactory.getRegistry(getUrl());
+    Registry registry = registryFactory.getRegistry(this.url);
     registry.register(url);
   }
 
@@ -94,7 +90,7 @@ public class Consumer {
    * @param url 服务url
    */
   public void unRegisterService(URL url) {
-    Registry registry = registryFactory.getRegistry(getUrl());
+    Registry registry = registryFactory.getRegistry(this.url);
     registry.unregister(url);
   }
 
@@ -105,7 +101,7 @@ public class Consumer {
    * @param listener 用户自定义的监听接口，当监听目录下内容变化时，返回所有子目录内容
    */
   public void subscribe(URL url, NotifyListener listener) {
-    Registry registry = registryFactory.getRegistry(getUrl());
+    Registry registry = registryFactory.getRegistry(this.url);
     registry.subscribe(url, listener);
   }
 
@@ -116,7 +112,7 @@ public class Consumer {
    * @param listener 自定义实现的回调函数,需要实现相关的接口
    */
   public void unSubscribe(URL url, NotifyListener listener) {
-    Registry registry = registryFactory.getRegistry(getUrl());
+    Registry registry = registryFactory.getRegistry(this.url);
     registry.unsubscribe(url, listener);
   }
 
@@ -129,25 +125,25 @@ public class Consumer {
    * @return 所有满足条件的内容（以URL表示）
    */
   public List<URL> lookup(URL url) {
-    Registry registry = registryFactory.getRegistry(getUrl());
+    Registry registry = registryFactory.getRegistry(this.url);
     return registry.lookup(url);
+  }
+
+  /**
+   * 读取注册中心指定路径节点的数据
+   *
+   * @param path 路径
+   * @return 节点数据
+   */
+  public String getData(String path) {
+    Registry registry = registryFactory.getRegistry(this.url);
+    return registry.getData(path);
   }
 
   /**
    * 关闭与注册中心的连接
    */
   public void releaseRegistry() {
-    registryFactory.releaseRegistry(getUrl());
-  }
-
-
-  /**
-   * 读取注册中心指定路径节点的数据
-   * @param path  路径
-   * @return 节点数据
-   */
-  public String getData(String path){
-    Registry registry = registryFactory.getRegistry(getUrl());
-    return registry.getData(path);
+    registryFactory.releaseRegistry(this.url);
   }
 }

@@ -64,26 +64,6 @@ public class ConsumerServiceRegistryFactory {
    * @author dengjq
    * @since V1.0 2017/3/30
    */
-  public static ConsumerServiceRegistry getRegistry(String ip,int port) {
-    String strategy = getConsumerServiceStrategy();
-
-    ConsumerServiceRegistry registry;
-
-    if ("default".equals(strategy)) {
-      registry = new DefaultConsumerServiceRegistryImpl(ip,port);
-    } else {
-      registry = new DefaultConsumerServiceRegistryImpl(ip,port);
-    }
-
-    return registry;
-  }
-
-  /**
-   * 获取注册实现类
-   *
-   * @author dengjq
-   * @since V1.0 2017/3/30
-   */
   public static ConsumerServiceRegistry getRegistry(URL targetUrl) {
     String strategy = getConsumerServiceStrategy();
 

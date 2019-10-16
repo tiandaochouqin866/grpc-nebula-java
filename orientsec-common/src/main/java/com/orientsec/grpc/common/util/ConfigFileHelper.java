@@ -53,7 +53,7 @@ public final class ConfigFileHelper {
   /**
    * 配置文件中以common开头的属性的key值(key值已经去掉了common.的前缀)
    */
-  public static final Map<String, Boolean> confFileCommonKeys = new HashMap<String, Boolean>(2);
+  public static final Map<String, Boolean> confFileCommonKeys = new HashMap<String, Boolean>(6);
 
   /**
    * 服务提供者的参数
@@ -78,11 +78,8 @@ public final class ConfigFileHelper {
   private static void initConfFileCommonKeys() {
     confFileCommonKeys.put(GlobalConstants.CommonKey.APPLICATION, Boolean.TRUE);
     confFileCommonKeys.put(GlobalConstants.CommonKey.GRPC, Boolean.TRUE);
-
-    //----begin----注册中心新增project,owner/wangcheng----
     confFileCommonKeys.put(GlobalConstants.CommonKey.PROJECT, Boolean.TRUE);
     confFileCommonKeys.put(GlobalConstants.CommonKey.OWNER, Boolean.TRUE);
-    //----end----注册中心新增project,owner/wangcheng----
   }
 
   /**
@@ -90,15 +87,12 @@ public final class ConfigFileHelper {
    */
   private static void initProvider() {
     // 必填项
-    ConfigFile version = new ConfigFile("version", DataType.STRING, true, null);
     ConfigFile application = new ConfigFile("application", DataType.STRING, true, null);
+    ConfigFile project = new ConfigFile("project", DataType.STRING, true, null);
+    ConfigFile owner = new ConfigFile("owner", DataType.STRING, true, null);
+    ConfigFile version = new ConfigFile("version", DataType.STRING, true, null);
     ConfigFile grpc = new ConfigFile("grpc", DataType.STRING, true, "1.0.0");
 
-    //----begin----注册中心新增project,owner/wangcheng----
-
-    ConfigFile project = new ConfigFile("project", DataType.STRING, true, null);
-
-    //----end----注册中心新增project,owner/wangcheng----
 
     // 必填项-->固定参数
     ConfigFile side = new ConfigFile("side", DataType.STRING, false, "provider");
@@ -122,9 +116,6 @@ public final class ConfigFileHelper {
     ConfigFile deprecated = new ConfigFile("deprecated", DataType.BOOLEAN, false, "false");
     ConfigFile dynamic = new ConfigFile("dynamic", DataType.BOOLEAN, false, "true");
     ConfigFile accesslog = new ConfigFile("accesslog", DataType.STRING, false, "false");
-    //----begin----注册中心新增project,owner/wangcheng----
-    ConfigFile owner = new ConfigFile("owner", DataType.STRING, true, null);
-    //----end----注册中心新增project,owner/wangcheng----
     ConfigFile weight = new ConfigFile("weight", DataType.INTEGER, false, "100");
     ConfigFile cluster = new ConfigFile("default.cluster", DataType.STRING, false, "failover");
     ConfigFile appVersion = new ConfigFile("application.version", DataType.STRING, false, null);
@@ -135,12 +126,13 @@ public final class ConfigFileHelper {
     ConfigFile dubbo = new ConfigFile("dubbo", DataType.STRING, false, null);
 
     ConfigFile accessProtected = new ConfigFile("access.protected", DataType.BOOLEAN, false, "false");
-    //----begin----注册中心新增project,owner/wangcheng----
-    provider.add(project);
-    //----end----注册中心新增project,owner/wangcheng----
+    //区别主备服务器
+    ConfigFile master = new ConfigFile("master", DataType.BOOLEAN, false, "true");
+    ConfigFile innerServiceNames = new ConfigFile("inner.service.names", DataType.STRING, false, "true");
 
-    provider.add(version);
     provider.add(application);
+    provider.add(project);
+    provider.add(version);
     provider.add(grpc);
     provider.add(side);
 
@@ -171,6 +163,8 @@ public final class ConfigFileHelper {
     provider.add(anyhost);
     provider.add(dubbo);
     provider.add(accessProtected);
+    provider.add(master);
+    provider.add(innerServiceNames);
   }
 
   public static List<ConfigFile> getProvider() {
@@ -185,6 +179,8 @@ public final class ConfigFileHelper {
   private static void initConsumer() {
     // 必填项
     ConfigFile application = new ConfigFile("application", DataType.STRING, true, null);
+    ConfigFile project = new ConfigFile("project", DataType.STRING, true, null);
+    ConfigFile owner = new ConfigFile("owner", DataType.STRING, false, null);
     ConfigFile grpc = new ConfigFile("grpc", DataType.STRING, true, "1.0.0");
 
     // 必填项-->固定参数
@@ -205,7 +201,6 @@ public final class ConfigFileHelper {
     ConfigFile applicationVersion = new ConfigFile("application.version", DataType.STRING, false, null);
     ConfigFile filter = new ConfigFile("default.reference.filter", DataType.STRING, false, null);
     ConfigFile logger = new ConfigFile("logger", DataType.STRING, false, null);
-    ConfigFile owner = new ConfigFile("owner", DataType.STRING, false, null);
     ConfigFile organization = new ConfigFile("organization", DataType.STRING, false, null);
     ConfigFile pid = new ConfigFile("pid", DataType.LONG, false, null);
     ConfigFile retries = new ConfigFile("default.retries", DataType.LONG, false, "2");
@@ -213,13 +208,12 @@ public final class ConfigFileHelper {
     ConfigFile requests = new ConfigFile("default.requests", DataType.STRING, false, "0");
     ConfigFile connections = new ConfigFile("default.connections", DataType.STRING, false, "0");
     ConfigFile cluster = new ConfigFile("default.cluster", DataType.STRING, false, "failover");
-    //----begin----注册中心新增project,owner/wangtao----
-    ConfigFile project = new ConfigFile("project", DataType.STRING, true, null);
-    //----end----注册中心新增project,owner/wangtao----
+    ConfigFile group = new ConfigFile("group", DataType.STRING, false, null);
+
+
     consumer.add(application);
-    //----begin----注册中心新增project,owner/wangtao----
     consumer.add(project);
-    //----end----注册中心新增project,owner/wangtao----
+
     consumer.add(category);
     consumer.add(check);
     consumer.add(grpc);
@@ -237,8 +231,7 @@ public final class ConfigFileHelper {
     consumer.add(requests);
     consumer.add(connections);
     consumer.add(cluster);
-
-
+    consumer.add(group);
   }
 
   public static List<ConfigFile> getConsumer() {

@@ -6,14 +6,14 @@ android {
         main {
             java {
                 srcDirs += "${projectDir}/../../interop-testing/src/main/java/"
-                setIncludes(["io/grpc/android/integrationtest/**",
-                             "io/grpc/testing/integration/AbstractInteropTest.java",
-                             "io/grpc/testing/integration/TestServiceImpl.java",
-                             "io/grpc/testing/integration/Util.java"])
+                setIncludes([
+                    "io/grpc/android/integrationtest/**",
+                    "io/grpc/testing/integration/AbstractInteropTest.java",
+                    "io/grpc/testing/integration/TestServiceImpl.java",
+                    "io/grpc/testing/integration/Util.java"
+                ])
             }
-            proto {
-                srcDirs += "${projectDir}/../../interop-testing/src/main/proto/"
-            }
+            proto { srcDirs += "${projectDir}/../../interop-testing/src/main/proto/" }
         }
     }
     compileSdkVersion 26
@@ -49,10 +49,8 @@ protobuf {
         all().each { task ->
             task.plugins {
                 javalite {}
-                grpc {
-                    // Options added to --grpc_out
-                    option 'lite'
-                }
+                grpc { // Options added to --grpc_out
+                    option 'lite' }
             }
         }
     }

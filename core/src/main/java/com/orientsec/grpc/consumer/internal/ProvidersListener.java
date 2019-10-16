@@ -42,7 +42,7 @@ public class ProvidersListener extends AbstractListener implements ConsumerListe
 
   @Override
   public void notify(List<URL> urls) {
-    Map<String, ServiceProvider> newProviders = getProvidersByUrls(urls);
+    Map<String, ServiceProvider> newProviders = zookeeperNameResolver.getProvidersByUrls(urls);
     int newSize = newProviders.size();
 
     if (newSize == 0) {
@@ -78,24 +78,6 @@ public class ProvidersListener extends AbstractListener implements ConsumerListe
     initData = false;
   }
 
-  /**
-   * 根据监听到的URL组装服务提供者
-   *
-   * @author sxp
-   * @since 2018-5-27
-   */
-  private Map<String, ServiceProvider> getProvidersByUrls(List<URL> urls) {
-    // 客户端指定的服务的版本
-    String serviceVersion = zookeeperNameResolver.getServiceVersion();
-    if (serviceVersion == null) {
-      serviceVersion = "";
-    }
-
-    Map<String, ServiceProvider> newProviders = ZookeeperNameResolver.getProvidersByUrls(urls, serviceVersion);
-    zookeeperNameResolver.resetAllProviders(newProviders);// 备份：当前服务接口的所有提供者
-
-    return newProviders;
-  }
 
   public boolean isProviderListEmpty() {
     return isProviderListEmpty;

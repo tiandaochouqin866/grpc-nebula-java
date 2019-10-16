@@ -160,14 +160,7 @@ maven项目，可以将配置文件放在源码/src/main/resources/config目录�
 	# 如果负载均衡策略选择是consistent_hash，但是该参数未配置参数值、或者参数值列表不正确，则取第一个参数的参数值返回
 	# 备注：该参数只支持通过配置文件配置
 	# consumer.consistent.hash.arguments=id
-	
-	# 可选,类型integer,缺省值5,说明：连续多少次请求出错，自动切换到提供相同服务的新服务器
-	consumer.switchover.threshold=5
-	
-	# 可选,类型为long,单位为秒,缺省值为60,说明：服务提供者不可用时的惩罚时间，即多次请求出错的服务提供者一段时间内不再去请求
-	# 属性值大于或等于0，等于0表示没有惩罚时间，如果客户端只剩下一个服务提供者，即使服务提供者不可用，也不做剔除操作。
-	consumer.unavailable.provider.punish.time=60
-	
+
 	# 可选,类型String,默认值consumers,说明:所属范畴
 	consumer.category=consumers
 	

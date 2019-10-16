@@ -17,25 +17,16 @@
  */
 package com.orientsec.grpc.registry.remoting.curator;
 
-import com.orientsec.grpc.common.resource.SystemConfig;
-import com.orientsec.grpc.common.util.DesEncryptUtils;
-import com.orientsec.grpc.common.util.PropertiesUtils;
-import com.orientsec.grpc.common.util.StringUtils;
 import org.apache.curator.framework.api.ACLProvider;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Id;
 import org.apache.zookeeper.server.auth.DigestAuthenticationProvider;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 
-import static com.orientsec.grpc.common.constant.GlobalConstants.ACL_PASSWORD;
-import static com.orientsec.grpc.common.constant.GlobalConstants.ACL_USERNAME;
 
 /**
  * zookeeper访问控制提供者
@@ -44,33 +35,13 @@ import static com.orientsec.grpc.common.constant.GlobalConstants.ACL_USERNAME;
  * @since 2019/2/12
  */
 public class ZkACLProvider implements ACLProvider {
-  private final static Logger logger = LoggerFactory.getLogger(ZkACLProvider.class);
   private static final String SCHEME = "digest";
-  private static final String USER_PASSWORD = initUserPassword();
-
-  /**
-   * 加载配置文件中的用户名和密码
-   */
-  private static String initUserPassword() {
-    Properties properties = SystemConfig.getProperties();
-    String user = PropertiesUtils.getStringValue(properties, ACL_USERNAME, null);
-    String password = PropertiesUtils.getStringValue(properties, ACL_PASSWORD, null);
-
-    if (StringUtils.isNotEmpty(user) && StringUtils.isNotEmpty(password)) {
-      try {
-        password = DesEncryptUtils.decrypt(password);
-      } catch (Exception e) {
-        logger.warn( "访问控制密码解密失败，" + e.getMessage(), e);
-        return null;
-      }
-
-      return user + ":" + password;
-    }
-
-    return null;
-  }
-
+  private final String userPassword;
   private List<ACL> acl;
+
+  public ZkACLProvider(String userPassword) {
+      this.userPassword = userPassword;
+  }
 
   @Override
   public List<ACL> getDefaultAcl() {
@@ -80,7 +51,7 @@ public class ZkACLProvider implements ACLProvider {
 
       String auth;
       try {
-        auth = DigestAuthenticationProvider.generateDigest(USER_PASSWORD);
+        auth = DigestAuthenticationProvider.generateDigest(userPassword);
       } catch (NoSuchAlgorithmException e) {
         auth = "";
       }
@@ -100,7 +71,4 @@ public class ZkACLProvider implements ACLProvider {
     return SCHEME;
   }
 
-  public static String getUserPassword() {
-    return USER_PASSWORD;
-  }
 }

@@ -19,18 +19,23 @@ package io.grpc.internal;
 import io.grpc.HandlerRegistry;
 import io.grpc.ServerMethodDefinition;
 import io.grpc.ServerServiceDefinition;
+
+import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import javax.annotation.Nullable;
 
 final class InternalHandlerRegistry extends HandlerRegistry {
 
-  private final List<ServerServiceDefinition> services;
-  private final Map<String, ServerMethodDefinition<?, ?>> methods;
+  /**
+   * 将services和methods设置为可修改的，因为框架需要支持动态新增服务、修改服务的需求
+   * @since 2019-07-16 modify by sxp
+   */
+  private List<ServerServiceDefinition> services;
+  private Map<String, ServerMethodDefinition<?, ?>> methods;
 
   private InternalHandlerRegistry(
       List<ServerServiceDefinition> services, Map<String, ServerMethodDefinition<?, ?>> methods) {
@@ -45,6 +50,26 @@ final class InternalHandlerRegistry extends HandlerRegistry {
   public List<ServerServiceDefinition> getServices() {
     return services;
   }
+
+  /**
+   * 重新设置服务和方法
+   *
+   * @author sxp
+   * @since 2019/7/16
+   */
+  @Override
+  public void resetServicesAndMethods(List<ServerServiceDefinition> newServices) {
+    Map<String, ServerMethodDefinition<?, ?>> map = new HashMap<>();
+    for (ServerServiceDefinition service : newServices) {
+      for (ServerMethodDefinition<?, ?> method : service.getMethods()) {
+        map.put(method.getMethodDescriptor().getFullMethodName(), method);
+      }
+    }
+
+    this.services = Collections.unmodifiableList(newServices);
+    this.methods = Collections.unmodifiableMap(map);
+  }
+
 
   @Nullable
   @Override

@@ -24,6 +24,7 @@ import com.orientsec.grpc.registry.RegistryFactory;
 import com.orientsec.grpc.registry.RegistryService;
 import com.orientsec.grpc.registry.common.Constants;
 import com.orientsec.grpc.registry.common.URL;
+import com.orientsec.grpc.registry.common.utils.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -107,6 +108,10 @@ public abstract class AbstractRegistryFactory implements RegistryFactory {
             .addParameter(Constants.INTERFACE_KEY, RegistryService.class.getName())
             .removeParameters(Constants.EXPORT_KEY, Constants.REFER_KEY);
     String key = url.toServiceString();
+    String id = url.getId();
+    if (StringUtils.isNotEmpty(id)) {
+      key = key + "-" + id;
+    }
     return key;
   }
 

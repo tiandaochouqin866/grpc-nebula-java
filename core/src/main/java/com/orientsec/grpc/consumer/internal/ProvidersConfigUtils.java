@@ -125,7 +125,7 @@ public class ProvidersConfigUtils {
    * @author sxp
    * @since 2018/8/11
    */
-  private static Object getProperty(String serviceName, String ip, int port, String propertyKey) {
+  public static Object getProperty(String serviceName, String ip, int port, String propertyKey) {
     if (!serviceProvidersConfig.containsKey(serviceName)) {
       return null;
     }
@@ -188,7 +188,7 @@ public class ProvidersConfigUtils {
     String ip = serviceProvider.getHost();
     int port = serviceProvider.getPort();
 
-    // 目前客户端只监听了服务端的两个属性weight和deprecated
+    // 目前客户端监听的服务端属性有：weight,deprecated,master,group
     Object value;
 
     value = getProperty(serviceName, ip, port, GlobalConstants.Provider.Key.WEIGHT);
@@ -201,6 +201,18 @@ public class ProvidersConfigUtils {
     if (value != null) {
       boolean deprecated = ((Boolean) value).booleanValue();
       serviceProvider.setDeprecated(deprecated);
+    }
+
+    value = getProperty(serviceName, ip, port, GlobalConstants.Provider.Key.MASTER);
+    if (value != null) {
+      boolean master = ((Boolean) value).booleanValue();
+      serviceProvider.setMaster(master);
+    }
+
+    value = getProperty(serviceName, ip, port, GlobalConstants.CommonKey.GROUP);
+    if (value != null) {
+      String group = (String) value;
+      serviceProvider.setGroup(group);
     }
   }
 

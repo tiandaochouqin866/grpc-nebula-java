@@ -13,7 +13,7 @@ dependencies {
 animalsniffer {
     // Don't check sourceSets.jmh
     sourceSets = [
-            sourceSets.main,
-            sourceSets.test
+        sourceSets.main,
+        sourceSets.test
     ]
 }

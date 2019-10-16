@@ -132,7 +132,8 @@ public class ProviderWeightHandler {
               providerKey = providerIp + ":" + port;
               providerUpdatedMap.put(providerKey, true);
 
-              logger.info("监听到[" + serviceName + "]的[服务权重]配置项，参数值为[" + newWeight + "]");
+              logger.info("监听到[" + serviceName + "]服务实例[" + providerKey
+                      + "]的[服务权重]配置项，参数值为[" + newWeight + "]");
             }
           }
         }
@@ -180,7 +181,8 @@ public class ProviderWeightHandler {
 
       providerUpdatedMap.put(providerKey, false);
 
-      logger.info("将[" + serviceName + "]的[服务权重]参数值恢复为默认值[" + initWeight + "]");
+      logger.info("将[" + serviceName + "]服务实例[" + providerKey
+              + "]的[服务权重]参数值恢复为默认值[" + initWeight + "]");
     }
   }
 

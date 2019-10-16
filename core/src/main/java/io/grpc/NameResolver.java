@@ -254,6 +254,10 @@ public abstract class NameResolver {
     return false;
   }
 
+  public Map<String, ServiceProvider> getAllProviders() {
+    return null;
+  }
+
   /**
    * Factory that creates {@link NameResolver} instances.
    *

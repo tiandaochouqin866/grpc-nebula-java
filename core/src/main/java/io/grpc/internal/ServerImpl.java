@@ -670,6 +670,11 @@ public final class ServerImpl extends io.grpc.Server implements InternalInstrume
   }
 
   @Override
+  public HandlerRegistry getRegistry() {
+    return registry;
+  }
+
+  @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
         .add("logId", logId.getId())

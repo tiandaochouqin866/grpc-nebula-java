@@ -63,10 +63,6 @@ public class LoadbalanceHandler {
       isEmpty = true;
     }
 
-    if (!filteredUrls.isEmpty() && !firstNotify) {
-      logger.info("监听到客户端的[负载均衡算法]配置发生变化");
-    }
-
     if (firstNotify) {
       firstNotify = false;
     }

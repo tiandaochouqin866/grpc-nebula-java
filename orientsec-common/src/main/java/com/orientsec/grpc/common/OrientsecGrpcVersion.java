@@ -17,10 +17,10 @@
 package com.orientsec.grpc.common;
 
 import com.orientsec.grpc.common.util.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.security.CodeSource;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * 东方证券grpc版本号
@@ -29,8 +29,8 @@ import java.util.logging.Logger;
  * @since V1.0 2017/5/23
  */
 public class OrientsecGrpcVersion {
-  private static final Logger logger = Logger.getLogger(OrientsecGrpcVersion.class.getName());
-  private static final String DEFAULT_VERSION = "1.0.0";// 默认版本号
+  private static final Logger logger = LoggerFactory.getLogger(OrientsecGrpcVersion.class);
+  private static final String DEFAULT_VERSION = "1.2.2";// 默认版本号
   /**
    * 版本号
    */
@@ -57,7 +57,7 @@ public class OrientsecGrpcVersion {
       }
     } catch (Throwable e) {
       version = null;
-      logger.log(Level.WARNING, "初始化版本号出错", e);
+      logger.warn("初始化版本号出错", e);
     }
 
     if (StringUtils.isEmpty(version)) {

@@ -17,8 +17,9 @@
 package com.orientsec.grpc.common.util;
 
 import com.orientsec.grpc.common.resource.SystemSwitch;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.util.logging.Logger;
 
 /**
  * 调试工具类
@@ -34,7 +35,7 @@ public final class DebugUtils {
   private static final String LOG_PREFIX = "ORIENTSEC-GRPC-DEBUG-INFO:";
 
   // 打印调试日志的功能列表的开关
-  private static Logger logger = Logger.getLogger(DebugUtils.class.getName());
+  private static Logger logger = LoggerFactory.getLogger(DebugUtils.class);
 
 
   /**

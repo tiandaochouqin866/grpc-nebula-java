@@ -20,12 +20,12 @@ import com.orientsec.grpc.common.resource.SystemSwitch;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * Test for DebugUtils
@@ -34,7 +34,7 @@ import java.util.logging.Logger;
  * @since 2018/11/28
  */
 public class DebugUtilsTest {
-  private static Logger logger = Logger.getLogger(DebugUtilsTest.class.getName());
+  private static Logger logger = LoggerFactory.getLogger(DebugUtilsTest.class);
   private static String oldUserDir = System.getProperty("user.dir");
   private static boolean oldDebugFlag;
 
@@ -86,7 +86,7 @@ public class DebugUtilsTest {
 
       return true;
     } catch (Exception e) {
-      logger.log(Level.SEVERE, e.getMessage(), e);
+      logger.error(e.getMessage(), e);
       return false;
     }
 

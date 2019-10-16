@@ -58,11 +58,18 @@ public abstract class AbstractZookeeperClient<TargetChildListener> implements Zo
     return url;
   }
 
+  /**
+   * @since 2019-08-12 modify by sxp 解决父节点有权限控制，子节点无权限控制，且父节点已经存在的情况下服务无法注册的问题
+   */
   public void create(String path, boolean ephemeral) {
     int i = path.lastIndexOf('/');
     if (i > 0) {
-      create(path.substring(0, i), false);
+      String parent = path.substring(0, i);
+      if (!isNodeExists(parent)) {
+        create(parent, false);
+      }
     }
+
     if (ephemeral) {
       createEphemeral(path);
     } else {
@@ -146,4 +153,12 @@ public abstract class AbstractZookeeperClient<TargetChildListener> implements Zo
   protected abstract void removeTargetChildListener(String path, TargetChildListener listener);
 
   protected abstract String doGetData(String path);
+
+  /**
+   * 检查节点是否存在
+   *
+   * @author sxp
+   * @since 2019/8/12
+   */
+  protected abstract boolean isNodeExists(String path);
 }

@@ -80,7 +80,6 @@ public class ProviderServiceRegistryImpl implements ProviderServiceRegistry {
     ip = IpUtils.getIP4WithPriority();
 
     RegistryTask registerTask = new RegistryTask(this, servicesParams);
-
     try {
      registerTask.work();
     } catch (Exception e) {
