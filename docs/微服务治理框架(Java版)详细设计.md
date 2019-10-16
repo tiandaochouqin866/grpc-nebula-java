@@ -265,7 +265,7 @@ b. 连接数控制流量控制：
 ### 10. 实现客户端对路由规则的解析方法，用来过滤服务端列表
 - 原理分析
 
-![路由规则判断流程图](https://raw.githubusercontent.com/grpc-nebula/grpc-nebula/master/images/routing-rules-judge-flow-diagram.png)
+![路由规则判断流程图](http://r.photo.store.qq.com/psb?/V120MUVE0N7Z5s/Suk6Hl3jblUOefGpphreR*Mn8qGtmfV6EqVLCRgQfAU!/r/dGwBAAAAAAAA)
 
 - 实现思路
 
@@ -730,7 +730,7 @@ Hash函数使用md5算法，然后将得到的字节数组通过位运算映射�
 	新增 com.orientsec.grpc.common.util.PropertiesUtils#getValidDoubleValue
 
 
-## 三、其它
+## 三、公共
 
 ### 21. 支持Zookeeper开启ACL
 - 原理分析
@@ -771,6 +771,215 @@ zookeeper支持以下几种权限控制方案：
 	新增 com.orientsec.grpc.registry.remoting.curator.ZkACLProvider
 	修改 com.orientsec.grpc.registry.remoting.curator.CuratorZookeeperClient#CuratorZookeeperClient
 
-### 22. 程序健壮性
+### 22. 主备切换
+- 使用场景
 
-当服务端与zookeeper断开连接、服务注册信息丢失后，如果客户端与服务端连接正常，那么客户端与服务端依然可以正常通信。
+多个服务端提供服务的时候，能够区分主服务器和备服务器。当主服务器可用时客户端只能调用主服务器，不能调用备服务器；当所有主服务器不可用时，客户端自动切换到备服务器进行服务调用；当主服务器恢复时，客户端自动切换到主服务器进行服务调用。
+
+- 实现思路
+
+给服务端添加一个master属性，用来标识服务端是主服务器还是备服务器，master等于true表示主服务器，master等于false表示备服务器，master缺省时为true。
+
+当客户端启动时，首先根据服务名获取所有的服务端列表，然后根据每个服务端的master属性进行筛选操作：
+
+(1) 当服务端列表中全部都是主服务器的时候，服务端列表不发生变化
+
+(2) 当服务端列表中全部都是备服务器的时候，服务端列表不发生变化
+
+(3) 当服务端列表中既有主服务器也有备服务器的时候，将备服务器从服务列表中移除出去，只保留主服务器
+
+同时，客户端监听注册中心中服务端主备属性的变化，一旦监听到变化，重新获取服务端列表，并进行以上筛选操作。
+
+- 相关代码
+
+涉及到的模块和代码:
+
+	orientsec-grpc-core 模块：
+	新增 com.orientsec.grpc.consumer.internal.ProviderMasterHandler
+	修改 com.orientsec.grpc.consumer.internal.ConfiguratorsListener中public void notify(List<URL> urls)方法
+	修改 com.orientsec.grpc.consumer.internal.ZookeeperNameResolver中public Map<String, ServiceProvider> getProvidersByUrls(List<URL> urls)方法
+
+
+### 23. 支持优先级的服务分组
+- 使用场景
+
+场景1：服务分组。当服务集群非常大时，客户端不必与每个服务节点建立连接，通过对服务分组，一个客户端只与一个服务组连接。
+
+场景2：业务隔离。例如服务端部署在三台服务器上，分别提供给三种业务的客户端。该场景下，可以将三台服务器配置不同的分组，然后不同业务的客户端配置各自的服务端分组。这样即使其中一种业务的客户端调用频繁导致服务端响应时间边长，也不会影响其它两种业务的客户端。
+
+场景3：多机房支持。例如某证券公司在上海有两个机房A和B，在深圳有一个机房C，三个机房都对外提供服务；每个机房都划分为两个分组，即三个机房共有6个分组，分别为A1、A2、B1、B2、C1、C2。在上海地区的客户端要调用证券公司的服务时，可以优先调用A1、A2两个分组的服务端；如果A1、A2分组的服务端不可用，调用B1、B2两个分组的服务端；如果B1、B2分组的服务端也不可用，调用C1、C2两个分组的服务端。
+
+
+- 实现思路
+
+服务端添加一个group属性，用来标识服务端的服务分组，group缺省值为空，表示没有服务分组。客户端也添加一个group属性，用来标识当前客户端可以调用的服务端分组。
+
+当客户端启动时，首先根据服务名获取所有的服务端列表，然后根据客户端的group属性和每个服务端的group属性，对服务端列表进行筛选操作：
+
+(1) 当客户端group属性为空的时候，服务列表不发生变化
+
+(2) 当客户端group属性不为空的时候，首先获取高优先级分组的服务端，如果获取不到，再获取优先级低的服务端。只要某个优先级分组的服务端获取到，就将获取到的服务端作为客户端的服务端列表。如果所有的优先级的分组服务端都没有获取到，客户端报错，提示找不到服务端。
+
+同时，客户端监听注册中心中服务端和客户端分组的变化，一旦监听到变化，重新获取服务端列表，并进行以上筛选操作。
+
+
+- 相关代码
+
+涉及到的模块和代码:
+
+	orientsec-grpc-core 模块：
+	新增 com.orientsec.grpc.consumer.internal.ProviderGroupHandler
+	修改 com.orientsec.grpc.consumer.internal.ConfiguratorsListener中public void notify(List<URL> urls)方法
+	修改 com.orientsec.grpc.consumer.internal.ZookeeperNameResolver中public Map<String, ServiceProvider> getProvidersByUrls(List<URL> urls)方法
+
+### 24. 服务端支持注册到多套注册中心
+- 使用场景
+
+服务端启动的时候，在注册到主注册中心的同时，也支持时注册到其他多个注册中心。主要使用在如下场景：同一台服务器上的应用同时为多套环境的其它提供服务。
+
+- 实现思路
+
+修改服务注册、注销方法，在进行服务注册或注销时，如果配置了多套注册中心，对每个注册中心进行操作。
+
+实现时需要注意，不同的注册中心可以配置不同的注册路径、不同的权限配置。
+
+- 参数配置方法
+
+在服务端配置文件“dfzq-grpc-config.properties”添加额外使用的注册中心。可以增加多个注册中心，参数格式如下所示。
+
+	# 必填,类型string,说明: 注册中心服务器列表，既支持单机，也支持集群
+	# zookeeper.host.server=168.61.2.23:2181,168.61.2.24:2181,168.61.2.25:2181
+	zookeeper.host.server=192.168.1.25:2181
+
+
+	# 可选，类型string,说明：服务端额外使用的注册中心服务器列表-01
+	# 如果要开启【服务端注册到多套注册中心功能】，该参数需要配置
+	zookeeper.service-register-01.host.server=192.168.3.52:2181
+	
+	# 可选，类型string，说明服务注册根路径,默认值/Application/grpc
+	# zookeeper.service-register-01.root=
+	
+	# 可选，类型string，说明：digest模式访问控制用户名
+	# zookeeper.service-register-01.acl.username=
+	
+	# 可选，类型string，说明：digest模式访问控制密码
+	# zookeeper.service-register-01.acl.password=
+	
+	
+	# 可选，类型string,说明：服务端额外使用的注册中心服务器列表-02
+	zookeeper.service-register-02.host.server=192.168.4.25:2181
+	
+	# 可选，类型string，说明服务注册根路径,默认值/Application/grpc
+	# zookeeper.service-register-02.root=
+	
+	# 可选，类型string，说明：digest模式访问控制用户名
+	# zookeeper.service-register-02.acl.username=
+	
+	# 可选，类型string，说明：digest模式访问控制密码
+	# zookeeper.service-register-02.acl.password=
+	
+	# ...
+
+
+
+- 相关代码
+
+涉及到的模块和代码:
+
+	orientsec-grpc-common 模块：
+	新增类   com.orientsec.grpc.common.model.RegistryCenter
+	新增类   com.orientsec.grpc.common.resource.RegisterCenterConf
+	新增类   com.orientsec.grpc.common.resource.ProviderRegisterCenterConf
+
+	orientsec-grpc-registry 模块：
+	修改 com.orientsec.grpc.registry.common.URL
+	修改 com.orientsec.grpc.registry.common.utils.UrlUtils
+	修改 com.orientsec.grpc.registry.service.Provider    
+	修改 com.orientsec.grpc.registry.zookeeper.ZookeeperRegistry
+	修改 com.orientsec.grpc.registry.remoting.curator.ZkACLProvider
+	修改 com.orientsec.grpc.registry.remoting.curator.CuratorZookeeperClient
+	修改 com.orientsec.grpc.registry.support.AbstractRegistryFactory
+
+
+### 25. 实现系统内部grpc服务与系统外部grpc服务的区分
+- 使用场景
+
+支持同一项目不同类型的grpc服务具有不同的可见性。
+
+项目中可能会包括两类grpc服务，对于内部项目组件间grpc调用服务，此类服务并不对外暴露，因此应该避免外部项目可见；对于项目对外提供的grpc服务则需要允许外部系统可见。
+
+
+- 实现思路
+
+公共注册中心参数配置包括：注册中心集群地址、注册根路径、digest模式ACL的用户名、digest模式ACL的密码。参数名称如下：
+
+	zookeeper.host.server (zookeeper.host.server和zookeeper.private.host.server至少配置一个参数)
+	common.root           (可选参数，默认值/Application/grpc)
+	zookeeper.acl.username(可选参数)
+	zookeeper.acl.password(可选参数)
+
+私有注册中心参数配置包括：注册中心集群地址、注册根路径、digest模式ACL的用户名、digest模式ACL的密码。参数名称如下：
+
+	zookeeper.private.host.server (zookeeper.host.server和zookeeper.private.host.server至少配置一个参数)
+	zookeeper.private.root        (可选参数，默认值/Application/grpc)
+	zookeeper.private.acl.username(可选参数)
+	zookeeper.private.acl.password(可选参数)
+
+如果服务端所有的服务都是公共服务(外部服务)，只需要配置“公共注册中心参数”。
+
+如果服务端所有的服务都是私有服务(内部服务)，只需要配置“私有注册中心参数”。
+ 
+如果服务端同时存在公共服务、私有服务，“公共注册中心参数”和“私有注册中心参数”都需要配置。
+
+
+如果客户端只调用公共服务(外部服务)，只需要配置“公共注册中心参数”。
+
+如果客户端只调用私有服务(内部服务)，只需要配置“私有注册中心参数”。
+
+如果客户端同时调用公共服务、私有服务，“公共注册中心参数”和“私有注册中心参数”都需要配置。
+
+
+如果系统存在私有服务(内部服务)，需要配置哪些服务属于私有服务、哪些服务属于公共服务。
+
+参数`public.service.list`表示公共服务名称列表，多个服务名称之间以英文逗号分隔。该参数可选，如果不配置，表示所有服务都是公共服务。
+
+参数`private.service.list`表示私有服务名称列表，多个服务名称之间以英文逗号分隔。该参数可选，如果不配置，将公共服务名称列表之外的服务都视为私有服务。
+
+公共服务向公共注册中心上注册，私有服务向私有注册中心上注册。
+
+给服务端增加一个服务类型(`service.type`)（公共/私有）的属性，服务类型根据服务所在的注册中心来判断，在公共注册中心上的服务为共有服务，在私有注册中心上的服务为私有服务。
+
+- 注册中心管理方案
+
+公共注册中心集群、私有注册中心集群分开管理。
+
+公共注册中心集群服务注册路径统一为`/Application/grpc`，并且不设置访问控制权限。
+
+私有注册中心集群服务注册路径为`/Application/grpc/private/xxx`，xxx表示应用（或开发团队）。区分内外部服务的应用首先需要向zookeeper管理员申请私有注册中心的服务注册路径。
+
+对于私有注册中心集群，不同应用（或开发团队）申请不同的注册路径，zookeeper管理员给不同注册路径设置不同访问控制权限（digest模式）。
+
+对于私有注册中心集群，为了方便服务治理平台管理注册中心，zookeeper管理员将服务治理平台服务器的IP地址列表配置到每个私有注册路径节点的ACL中，实现服务治理平台可以免密访问私有注册中心集群。
+
+
+- 相关代码
+
+涉及到的模块和代码:
+
+	orientsec-grpc-common 模块：
+	新增 com.orientsec.grpc.common.resource.PrivateRegisterCenterConf  
+	新增 com.orientsec.grpc.common.resource.AllRegisterCenterConf  
+	修改 com.orientsec.grpc.common.resource.RegisterCenterConf  
+
+	orientsec-grpc-registry 模块：    
+    修改 com.orientsec.grpc.registry.service.Provider
+	修改 com.orientsec.grpc.registry.service.Consumer
+	修改 com.orientsec.grpc.registry.common.utils.UrlUtils	
+	修改 com.orientsec.grpc.registry.zookeeper.ZookeeperRegistry	
+	修改 com.orientsec.grpc.registry.remoting.curator.CuratorZookeeperClient
+
+	orientsec-grpc-core 模块：
+	修改 com.orientsec.grpc.consumer.internal.ZookeeperNameResolver
+	
+
+

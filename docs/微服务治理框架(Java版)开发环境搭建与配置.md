@@ -19,7 +19,7 @@ settings.xml文件可以从maven的安装包下的conf目录拷贝。
 以maven工程为例，增加如下依赖至pom.xml文件:
 
 	<properties>
-		<orientsec.grpc.version>1.1.0</orientsec.grpc.version>
+		<orientsec.grpc.version>1.2.2</orientsec.grpc.version>
 	</properties>
 
 	<!-- orientsec-grpc-java -->
