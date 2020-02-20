@@ -24,6 +24,7 @@ import org.junit.runners.JUnit4;
 import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.*;
@@ -70,6 +71,10 @@ public class ForwardingNameResolverTest {
 
       @Override
       public void setArgument(Object argument) {
+
+      }
+      @Override
+      public void removeInvalidCacheSubchannels(Set<String> removeHostPorts) {
 
       }
     };

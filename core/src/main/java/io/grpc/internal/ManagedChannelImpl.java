@@ -28,21 +28,48 @@ import com.orientsec.grpc.common.enums.LoadBalanceMode;
 import com.orientsec.grpc.common.resource.SystemConfig;
 import com.orientsec.grpc.common.util.LoadBalanceUtil;
 import com.orientsec.grpc.common.util.StringUtils;
+import com.orientsec.grpc.common.util.ThreadUtils;
 import com.orientsec.grpc.consumer.ConsistentHashArguments;
 import com.orientsec.grpc.consumer.ThreadLocalVariableUtils;
 import com.orientsec.grpc.consumer.core.ConsumerServiceRegistry;
 import com.orientsec.grpc.consumer.core.ConsumerServiceRegistryFactory;
 import com.orientsec.grpc.consumer.internal.ProvidersListener;
-import io.grpc.*;
+import io.grpc.Attributes;
+import io.grpc.CallOptions;
+import io.grpc.Channel;
+import io.grpc.ChannelLogger;
 import io.grpc.ChannelLogger.ChannelLogLevel;
+import io.grpc.ClientCall;
+import io.grpc.ClientInterceptor;
+import io.grpc.ClientInterceptors;
+import io.grpc.ClientStreamTracer;
+import io.grpc.CompressorRegistry;
+import io.grpc.ConnectivityState;
+import io.grpc.ConnectivityStateInfo;
+import io.grpc.Context;
+import io.grpc.DecompressorRegistry;
+import io.grpc.EquivalentAddressGroup;
+import io.grpc.InternalChannelz;
 import io.grpc.InternalChannelz.ChannelStats;
 import io.grpc.InternalChannelz.ChannelTrace;
+import io.grpc.InternalInstrumented;
+import io.grpc.InternalLogId;
+import io.grpc.InternalWithLogId;
+import io.grpc.LoadBalancer;
 import io.grpc.LoadBalancer.PickResult;
 import io.grpc.LoadBalancer.PickSubchannelArgs;
 import io.grpc.LoadBalancer.SubchannelPicker;
+import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
+import io.grpc.MethodDescriptor;
+import io.grpc.NameResolver;
+import io.grpc.Status;
+import io.grpc.SynchronizationContext;
 import io.grpc.internal.ClientCallImpl.ClientTransportProvider;
 import io.grpc.internal.RetriableStream.ChannelBufferMeter;
 import io.grpc.internal.RetriableStream.Throttle;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.CheckForNull;
 import javax.annotation.Nullable;
@@ -70,12 +97,14 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
-import static com.google.common.base.Preconditions.*;
-import static io.grpc.ConnectivityState.*;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
+import static io.grpc.ConnectivityState.IDLE;
+import static io.grpc.ConnectivityState.SHUTDOWN;
+import static io.grpc.ConnectivityState.TRANSIENT_FAILURE;
 import static io.grpc.internal.ServiceConfigInterceptor.HEDGING_POLICY_KEY;
 import static io.grpc.internal.ServiceConfigInterceptor.RETRY_POLICY_KEY;
 
@@ -83,7 +112,7 @@ import static io.grpc.internal.ServiceConfigInterceptor.RETRY_POLICY_KEY;
 @ThreadSafe
 public final class ManagedChannelImpl extends ManagedChannel implements
     InternalInstrumented<ChannelStats> {
-  static final Logger logger = Logger.getLogger(ManagedChannelImpl.class.getName());
+  static final Logger logger = LoggerFactory.getLogger(ManagedChannelImpl.class);
 
   // Matching this pattern means the target string is a URI target or at least intended to be one.
   // A URI target must be an absolute hierarchical URI.
@@ -126,8 +155,7 @@ public final class ManagedChannelImpl extends ManagedChannel implements
       new Thread.UncaughtExceptionHandler() {
         @Override
         public void uncaughtException(Thread t, Throwable e) {
-          logger.log(
-              Level.SEVERE,
+          logger.error(
               "[" + getLogId() + "] Uncaught exception in the SynchronizationContext. Panic!",
               e);
           panic(e);
@@ -270,7 +298,7 @@ public final class ManagedChannelImpl extends ManagedChannel implements
     final class StatsFetcher implements Runnable {
       @Override
       public void run() {
-        ChannelStats.Builder builder = new InternalChannelz.ChannelStats.Builder();
+        ChannelStats.Builder builder = new ChannelStats.Builder();
         channelCallTracer.updateBuilder(builder);
         channelTracer.updateBuilder(builder);
         builder.setTarget(target).setState(channelStateManager.getState());
@@ -443,6 +471,8 @@ public final class ManagedChannelImpl extends ManagedChannel implements
   }
 
   private final class ChannelTransportProvider implements ClientTransportProvider {
+    private EquivalentAddressGroup previousAddressGroup = null;
+
     @Override
     public ClientTransport get(PickSubchannelArgs args) {
       SubchannelPicker pickerCopy = subchannelPicker;
@@ -455,6 +485,8 @@ public final class ManagedChannelImpl extends ManagedChannel implements
       //----begin----获取一致性Hash的参数值----
       final Object argument = getArgument();
       //----end------获取一致性Hash的参数值----
+
+      String lbMode = "";
 
       if (pickerCopy == null) {
         final class ExitIdleModeForTransport implements Runnable {
@@ -470,7 +502,8 @@ public final class ManagedChannelImpl extends ManagedChannel implements
         //----begin----请求负载均衡----
 
         // 如果负载均衡模式为“请求负载均衡”，每次都触发负载均衡算法
-        if (LoadBalanceMode.request.name().equals(getloadBalanceMode(nameResolver))) {
+        lbMode = getloadBalanceMode(nameResolver);
+        if (LoadBalanceMode.request.name().equals(lbMode)) {
           String method = getMethod(nameResolver);
           nameResolver.resolveServerInfo(argument, method);
         }
@@ -499,34 +532,7 @@ public final class ManagedChannelImpl extends ManagedChannel implements
          * 客户端与服务端依然可以正常通信。
          */
         if (transport == null || (transport instanceof FailingClientTransport)) {
-          LoadBalancer lb = getLoadBalancer();
-          if (lb != null) {
-            EquivalentAddressGroup server = lb.getAddresses();
-            if (server != null) {
-              // 重新创建连接
-              boolean success = nameResolver.resolveOneServer(server);
-              if (success) {
-                int retryTimes = 3;
-                for (int i = 0; i < retryTimes; i++) {
-                  pickerCopy = subchannelPicker;
-                  pickResult = pickerCopy.pickSubchannel(args);
-                  transport = GrpcUtil.getTransportFromPickResult(
-                          pickResult, args.getCallOptions().isWaitForReady());
-                  if (transport == null || (transport instanceof FailingClientTransport)) {
-                    try {
-                      logger.info("wait for 1 second to create transport...");
-                      TimeUnit.SECONDS.sleep(1);
-                    } catch (InterruptedException e) {
-                      logger.info(e.getMessage());
-                      Thread.currentThread().interrupt();
-                    }
-                  } else {
-                    break;
-                  }
-                }
-              }
-            }
-          }
+          transport = getTransportFromLb(args, true);
         }
 
         InetSocketAddress inetSocketAddress = null;
@@ -555,8 +561,8 @@ public final class ManagedChannelImpl extends ManagedChannel implements
         String host = inetAddress.getHostAddress();
         int port = inetSocketAddress.getPort();
 
-        // 如果transport的地址在被路由规则过滤的服务端的集合中，那么仍然需要报错
         if (StringUtils.isNotEmpty(host)) {
+          // 如果transport的地址在被路由规则过滤的服务端的集合中，那么仍然需要报错
           boolean filtered = nameResolver.isInfilteredProviders(host, port);
 
           if (filtered) {
@@ -566,16 +572,117 @@ public final class ManagedChannelImpl extends ManagedChannel implements
               return IN_BLACKLIST_TRANSPORT;
             }
           }
+
+          // 该服务端的分组是否满足客户端的要求
+          boolean valid = nameResolver.isGroupValid(host, port);
+          if (!valid) {
+            if (listener != null && listener.isProviderListEmpty()) {
+              return NO_PROVIDER_TRANSPORT;
+            } else {
+              return IN_BLACKLIST_TRANSPORT;
+            }
+          }
+        }
+      } else {
+        // 当客户端与服务端连接没建立好的时候，等待连接创建成功
+        boolean invalid = (transport == null || (transport instanceof FailingClientTransport));
+        if (invalid && LoadBalanceMode.request.name().equals(lbMode)) {
+          transport = getTransportFromLb(args, false);
         }
       }
 
       //----end------检查服务提供者是否存在----
 
+      //----bedin----根据transport设置当前服务端地址----
+      EquivalentAddressGroup currentAddressGroup = previousAddressGroup;
+
+      EquivalentAddressGroup addressGroup = getCurrentProviderAddressGroup(transport);
+      if (addressGroup != null) {
+        currentAddressGroup = addressGroup;
+      }
+
+      LoadBalancer lb = getLoadBalancer();
+      lb.setAddress(currentAddressGroup);
+
+      if (currentAddressGroup != null) {
+        previousAddressGroup = currentAddressGroup;
+      }
+      //----end------根据transport设置当前服务端地址----
 
       if (transport != null) {
         return transport;
       }
       return delayedTransport;
+    }
+
+    /**
+     * 从负载均衡对象中获取transport
+     *
+     * @author sxp
+     * @since 2019/11/14
+     */
+    private ClientTransport getTransportFromLb(PickSubchannelArgs args, boolean doResolve) {
+      LoadBalancer lb = getLoadBalancer();
+      if (lb == null) {
+        return null;
+      }
+
+      if (doResolve) {
+        EquivalentAddressGroup server = lb.getAddresses();
+        if (server == null) {
+          return null;
+        }
+
+        boolean success = nameResolver.resolveOneServer(server);
+        if (!success) {
+          return null;
+        }
+      }
+
+      SubchannelPicker pickerCopy;
+      ClientTransport transport = null;
+      PickResult pickResult;
+
+      int retryTimes = 100;
+      for (int i = 0; i < retryTimes; i++) {
+        pickerCopy = subchannelPicker;
+        pickResult = pickerCopy.pickSubchannel(args);
+        transport = GrpcUtil.getTransportFromPickResult(
+                pickResult, args.getCallOptions().isWaitForReady());
+        if (transport == null || (transport instanceof FailingClientTransport)) {
+          if (i % 20 == 0) {
+            logger.info("wait for transport to be created...");
+          }
+          ThreadUtils.sleepQuietly(TimeUnit.MILLISECONDS, 10);
+        } else {
+          break;
+        }
+      }
+
+      return transport;
+    }
+
+    /**
+     * 获得当前的服务端地址
+     *
+     * @author sxp
+     * @since 2019/12/5
+     */
+    private EquivalentAddressGroup getCurrentProviderAddressGroup(ClientTransport transport) {
+      EquivalentAddressGroup addressGroup = null;
+
+      if (transport instanceof InternalSubchannel.CallTracingTransport) {
+        InternalSubchannel.CallTracingTransport callTransport;
+        callTransport = (InternalSubchannel.CallTracingTransport) transport;
+        ConnectionClientTransport connTransport = callTransport.delegate();
+        SocketAddress socketAddress = connTransport.getAddress();
+        if (socketAddress instanceof InetSocketAddress) {
+          InetSocketAddress inetSocketAddress = (InetSocketAddress) socketAddress;
+          addressGroup = new EquivalentAddressGroup(inetSocketAddress);
+        }
+      }
+
+      return addressGroup;
     }
 
     @Override
@@ -1140,7 +1247,7 @@ public final class ManagedChannelImpl extends ManagedChannel implements
       try {
         syncContext.throwIfNotInThisSynchronizationContext();
       } catch (IllegalStateException e) {
-        logger.log(Level.WARNING,
+        logger.warn(
             "We sugguest you call createSubchannel() from SynchronizationContext."
             + " Otherwise, it may race with handleSubchannelState()."
             + " See https://github.com/grpc/grpc-java/issues/5015", e);
@@ -1422,8 +1529,7 @@ public final class ManagedChannelImpl extends ManagedChannel implements
                 throttle = getThrottle(config);
               }
             } catch (RuntimeException re) {
-              logger.log(
-                  Level.WARNING,
+              logger.warn(
                   "[" + getLogId() + "] Unexpected exception from parsing service config",
                   re);
             }
@@ -1439,7 +1545,7 @@ public final class ManagedChannelImpl extends ManagedChannel implements
     @Override
     public void onError(final Status error) {
       checkArgument(!error.isOk(), "the error status must not be OK");
-      logger.log(Level.WARNING, "[{0}] Failed to resolve name. status={1}",
+      logger.warn("[{}] Failed to resolve name. status={}",
           new Object[] {getLogId(), error});
       if (haveBackends == null || haveBackends) {
         channelLogger.log(ChannelLogLevel.WARNING, "Failed to resolve name: {0}", error);
@@ -1486,6 +1592,31 @@ public final class ManagedChannelImpl extends ManagedChannel implements
     @Override
     public void setArgument(Object argument){
       this.argument = argument;
+    }
+
+    /**
+     * 删除客户端与离线服务端之间的无效subchannel
+     *
+     * @author sxp
+     * @since 2019/12/02
+     */
+    @Override
+    public void removeInvalidCacheSubchannels(final Set<String> removeHostPorts) {
+      if (removeHostPorts == null || removeHostPorts.isEmpty()) {
+        return;
+      }
+
+      final class InvalidCacheHandler implements Runnable {
+        @Override
+        public void run() {
+          if (NameResolverListenerImpl.this.helper != ManagedChannelImpl.this.lbHelper) {
+            return;
+          }
+          helper.lb.removeInvalidCacheSubchannels(removeHostPorts);
+        }
+      }
+
+      syncContext.execute(new InvalidCacheHandler());
     }
   }
 

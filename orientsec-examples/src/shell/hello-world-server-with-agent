@@ -10,7 +10,7 @@ echo "Start server..."
 nohup java -cp $CLASSPATH:lib/* \
 -javaagent:/opt/grpc-governance/bonree/bonree.jar \
 -Dbonree.appName=hello-world-server  \
--Dbonree.agentName=hello-world-server-235  \
+-Dbonree.agentName=hello-world-server  \
 -Dbonree.clusterName=grpc-test-application  \
 -Dbonree.tierName=grpc-test-project \
 com.orientsec.grpc.examples.helloworld.HelloWorldServer \

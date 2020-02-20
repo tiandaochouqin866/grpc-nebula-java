@@ -19,14 +19,21 @@ package io.grpc;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import com.orientsec.grpc.common.util.MathUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.Immutable;
 import javax.annotation.concurrent.NotThreadSafe;
 import javax.annotation.concurrent.ThreadSafe;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 
 /**
@@ -103,6 +110,7 @@ import java.util.concurrent.ScheduledExecutorService;
 @ExperimentalApi("https://github.com/grpc/grpc-java/issues/1771")
 @NotThreadSafe
 public abstract class LoadBalancer {
+  private static final Logger logger = LoggerFactory.getLogger(LoadBalancer.class);
   /**
    * Handles newly resolved server groups and metadata attributes from name resolution system.
    * {@code servers} contained in {@link EquivalentAddressGroup} should be considered equivalent
@@ -167,6 +175,60 @@ public abstract class LoadBalancer {
    */
   public EquivalentAddressGroup getAddresses() {
     return null;
+  }
+
+  /**
+   * 设置当前服务端地址
+   *
+   * @author sxp
+   * @since 2019/12/4
+   */
+  public void setAddress(EquivalentAddressGroup addressGroup) {
+  }
+
+  /**
+   * 删除客户端与离线服务端之间的无效subchannel
+   *
+   * @author sxp
+   * @since 2019/12/02
+   */
+  public void removeInvalidCacheSubchannels(Set<String> removeHostPorts) {
+  }
+
+
+  /**
+   * 根据IP:port的字符串获取对应的EquivalentAddressGroup
+   *
+   * @author sxp
+   * @since 2019/12/4
+   */
+  public EquivalentAddressGroup getAddressGroupByHostAndPort(String hostAndPort) {
+    String[] array = hostAndPort.split(":");
+    if (array == null || array.length != 2) {
+      return null;
+    }
+
+    String host = array[0];
+    String portStr = array[1];
+
+    if (!MathUtils.isInteger(portStr)) {
+      logger.error("将hostAndPort解析为EquivalentAddressGroup出错，端口号[" + portStr + "]不是数字");
+      return null;
+    }
+
+    int port = Integer.parseInt(portStr);
+    InetAddress inetAddr;
+    try {
+      inetAddr = InetAddress.getByName(host);
+    } catch (UnknownHostException e) {
+      logger.error("将hostAndPort解析为EquivalentAddressGroup出错", e);
+      return null;
+    }
+
+    InetSocketAddress inetSocketAddr = new InetSocketAddress(inetAddr, port);
+    EquivalentAddressGroup server = new EquivalentAddressGroup(inetSocketAddr);
+
+    return server;
   }
 
   /**

@@ -82,7 +82,7 @@ public final class ExponentialBackoffPolicy implements BackoffPolicy {
   /**
    * grpc断线重连指数回退协议"失败重试等待时间上限"参数
    * <p>
-   * 类型long,缺省值120,单位秒
+   * 类型long,缺省值20,单位秒
    * </p>
    *
    * @author sxp
@@ -90,7 +90,7 @@ public final class ExponentialBackoffPolicy implements BackoffPolicy {
    */
   private static long getMax() {
     String key = GlobalConstants.Consumer.Key.BACKOFF_MAX;
-    long defaultValue = 120L;
+    long defaultValue = 20L;
     Properties properties = SystemConfig.getProperties();
 
     long value = PropertiesUtils.getValidLongValue(properties, key, defaultValue);

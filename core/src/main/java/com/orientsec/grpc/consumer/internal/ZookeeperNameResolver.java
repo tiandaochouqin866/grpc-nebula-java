@@ -492,6 +492,52 @@ public class ZookeeperNameResolver extends NameResolver {
   }
 
   /**
+   * 服务端分组信息是否满足客户端
+   *
+   * @author sxp
+   * @since 2019/11/14
+   */
+  @Override
+  public boolean isGroupValid(String host, int port) {
+    String consumerGroup = this.group;
+    consumerGroup = StringUtils.trim(consumerGroup);
+    if (StringUtils.isEmpty(consumerGroup)) {
+      return true;
+    }
+
+    Map<String, ServiceProvider> allProviders = this.allProviders;
+    String key = host + ":" + port;
+
+    // 服务端有可能下线了，这种情况认为分组信息满足条件
+    if (!allProviders.containsKey(key)) {
+      return true;
+    }
+
+    ServiceProvider provider = allProviders.get(key);
+    if (provider == null) {
+      return true;
+    }
+
+    // 客户端有分组，服务端无分组，客户端不可以调用
+    String providerGroup = provider.getGroup();
+    providerGroup = StringUtils.trim(providerGroup);
+    if (StringUtils.isEmpty(providerGroup)) {
+      return false;
+    }
+
+    // A   A,B  A1,A2;B;C1,C2
+    consumerGroup = consumerGroup.replace(';',',');
+    consumerGroup = "," + consumerGroup + ",";
+
+    providerGroup = "," + providerGroup + ",";
+    if (consumerGroup.indexOf(providerGroup) >= 0) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  /**
    * 将一个传入服务器列表应用路由规则，返回过滤后的服务提供者列表
    */
   public Map<String, ServiceProvider> getProvidersAfterRoute(Map<String, ServiceProvider> serviceProviders) {
@@ -738,13 +784,13 @@ public class ZookeeperNameResolver extends NameResolver {
    *
    * @author sxp
    * @since 2019/7/3
+   * @since 2019/10/21 先按照主备筛选服务器，再按照分组进行筛选
    */
   private Map<String, ServiceProvider> getProvidersFunc(List<URL> urls, String targetVersion) {
     boolean checkVersion = false;
     if (StringUtils.isNotEmpty(targetVersion)) {
       checkVersion = true;
     }
-    String application = getConfig(GlobalConstants.COMMON_APPLICATION);
     Map<String, ServiceProvider> providers = new HashMap<>();
 
     String version, key;
@@ -785,11 +831,11 @@ public class ZookeeperNameResolver extends NameResolver {
     Map<String, ServiceProvider> allProviders = new HashMap<>(providers);
     resetAllProviders(allProviders);// 备份：当前服务接口的所有提供者
 
-    // 根据分组进行筛选
-    providers = selectProvidersByGroup(providers);
-
     // 根据master标志进行筛选
     providers = chooseProvidersByMasterFlag(providers, hasMaster);
+
+    // 根据分组进行筛选
+    providers = selectProvidersByGroup(providers);
 
     logger.debug("available provider service:" + providers);
 
@@ -1191,5 +1237,20 @@ public class ZookeeperNameResolver extends NameResolver {
     // loadBlanceStrategy已经计算好了，直接拿过来使用
     serviceProviderMap = LoadBalancerFactory.getServiceProviderByLbStrategy(
             lb, providersForLoadBalance, serviceName, argument);
+  }
+
+  /**
+   * 删除客户端与离线服务端之间的无效subchannel
+   *
+   * @author sxp
+   * @since 2019/12/02
+   */
+  public void removeInvalidCacheSubchannels(Set<String> removeHostPorts) {
+    if (listener == null) {
+      logger.info("listener is null, skip.");
+      return;
+    }
+
+    listener.removeInvalidCacheSubchannels(removeHostPorts);
   }
 }

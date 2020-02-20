@@ -16,6 +16,8 @@
  */
 package com.orientsec.grpc.examples.helloworld;
 
+import com.orientsec.grpc.common.resource.SystemConfig;
+import com.orientsec.grpc.common.util.PropertiesUtils;
 import com.orientsec.grpc.examples.common.NameCreater;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -25,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Properties;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
@@ -57,7 +60,8 @@ public class HelloWorldClient {
    * 向服务端发送请求
    */
   public void greet(int id, String name) {
-    logger.info("Will try to greet " + name + " ...");
+    long begin = System.currentTimeMillis();
+
     HelloRequest request = HelloRequest.newBuilder().setId(id).setName(name).build();
     HelloReply response;
     try {
@@ -79,7 +83,9 @@ public class HelloWorldClient {
       logger.error("RPC failed:", e);
       return;
     }
-    logger.info("Greeting response: " + response.getMessage());
+
+    long cost = System.currentTimeMillis() - begin;
+    logger.info("耗时[" + cost + "]ms, Greeting response: " + response.getMessage());
   }
 
 
@@ -88,14 +94,18 @@ public class HelloWorldClient {
 
     try {
       long count = 0;
-      long interval = 5000L;// 时间单位为毫秒
+      long interval = getClientSleepInterval();// 单位：毫秒
       int id;
-      long LOOP_NUM = 30 * 86400L * 1000 / interval;// 运行30天
+      long loopNum = 30 * 86400L * 1000;
+
+      if (interval > 0) {
+        loopNum = 30 * 86400L * 1000 / interval;// 运行30天
+      }
 
       if (args.length > 0 && args[0].contains("high-concurrency")) {
         logger.info("Test high concurrency client ");
         interval = 10L;
-        LOOP_NUM = 3600L * 1000 / interval;// 运行1小时
+        loopNum = 3600L * 1000 / interval;// 运行1小时
       }
 
       logger.info("Sleep interval is [" + interval + "] ms.");
@@ -105,7 +115,7 @@ public class HelloWorldClient {
       int size = names.size();
 
       while (true) {
-        if (count++ >= LOOP_NUM) {
+        if (count++ >= loopNum) {
           break;
         }
 
@@ -123,5 +133,19 @@ public class HelloWorldClient {
     } finally {
       client.shutdown();
     }
+  }
+
+
+  private static long getClientSleepInterval() {
+    String key = "client.sleep.interval.ms";
+    long defaultValue = 200L;
+    Properties properties = SystemConfig.getProperties();
+    long value = PropertiesUtils.getValidLongValue(properties, key, defaultValue);
+    if (value < 0L) {
+      value = defaultValue;
+    }
+
+    logger.info(key + " = " + value);
+    return value;
   }
 }

@@ -35,6 +35,7 @@ import io.grpc.Status;
 import javax.annotation.Nullable;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 final class AutoConfiguredLoadBalancerFactory extends LoadBalancer.Factory {
   private static final String DEFAULT_POLICY = "pick_first";
@@ -123,6 +124,19 @@ final class AutoConfiguredLoadBalancerFactory extends LoadBalancer.Factory {
       return null;
     }
 
+    /**
+     * 设置当前服务端地址
+     *
+     * @author sxp
+     * @since 2019/12/4
+     */
+    @Override
+    public void setAddress(EquivalentAddressGroup addressGroup) {
+      if (delegate != null) {
+        delegate.setAddress(addressGroup);
+      }
+    }
+
     @Override
     public void handleNameResolutionError(Status error) {
       getDelegate().handleNameResolutionError(error);
@@ -197,6 +211,17 @@ final class AutoConfiguredLoadBalancerFactory extends LoadBalancer.Factory {
         }
       }
       return getProviderOrThrow(DEFAULT_POLICY, "Using default policy");
+    }
+
+    /**
+     * 删除客户端与离线服务端之间的无效subchannel
+     *
+     * @author sxp
+     * @since 2019/12/02
+     */
+    @Override
+    public void removeInvalidCacheSubchannels(Set<String> removeHostPorts) {
+      getDelegate().removeInvalidCacheSubchannels(removeHostPorts);
     }
   }
 

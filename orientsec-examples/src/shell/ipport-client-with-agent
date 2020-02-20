@@ -15,7 +15,7 @@ nohup java -cp $CLASSPATH:lib/* \
 -Dbonree.agentName=hello-world-client  \
 -Dbonree.clusterName=grpc-test-application  \
 -Dbonree.tierName=grpc-test-project \
-com.orientsec.grpc.examples.helloworld.HelloWorldClient $arg \
+com.orientsec.grpc.examples.helloworld.IpPortClient $arg \
 >client.log 2 >&1 &
 
 sleep 5s

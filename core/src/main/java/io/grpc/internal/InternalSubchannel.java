@@ -16,12 +16,6 @@
 
 package io.grpc.internal;
 
-import static io.grpc.ConnectivityState.CONNECTING;
-import static io.grpc.ConnectivityState.IDLE;
-import static io.grpc.ConnectivityState.READY;
-import static io.grpc.ConnectivityState.SHUTDOWN;
-import static io.grpc.ConnectivityState.TRANSIENT_FAILURE;
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -46,6 +40,12 @@ import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
 import io.grpc.Status;
 import io.grpc.SynchronizationContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nullable;
+import javax.annotation.concurrent.GuardedBy;
+import javax.annotation.concurrent.ThreadSafe;
 import java.net.SocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -54,18 +54,15 @@ import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import javax.annotation.Nullable;
-import javax.annotation.concurrent.GuardedBy;
-import javax.annotation.concurrent.ThreadSafe;
+
+import static io.grpc.ConnectivityState.*;
 
 /**
  * Transports for a single {@link SocketAddress}.
  */
 @ThreadSafe
-final class InternalSubchannel implements InternalInstrumented<ChannelStats> {
-  private static final Logger log = Logger.getLogger(InternalSubchannel.class.getName());
+public final class InternalSubchannel implements InternalInstrumented<ChannelStats> {
+  private static final Logger logger = LoggerFactory.getLogger(InternalSubchannel.class);
 
   private final InternalLogId logId;
   private final String authority;
@@ -267,6 +264,8 @@ final class InternalSubchannel implements InternalInstrumented<ChannelStats> {
     if (runnable != null) {
       syncContext.executeLater(runnable);
     }
+
+    logger.info("创建客户端与服务端[" + address + "]连接");
   }
 
   /**
@@ -294,7 +293,7 @@ final class InternalSubchannel implements InternalInstrumented<ChannelStats> {
         } catch (Throwable t) {
           // TODO(zhangkun): we may consider using SynchronizationContext to schedule the reconnect
           // timer, so that we don't need this catch, since SynchronizationContext would catch it.
-          log.log(Level.WARNING, "Exception handling end of backoff", t);
+          logger.warn("Exception handling end of backoff", t);
         } finally {
           syncContext.drain();
         }
@@ -585,8 +584,14 @@ final class InternalSubchannel implements InternalInstrumented<ChannelStats> {
 
     @Override
     public void transportShutdown(Status s) {
+      String errorMsg = printShortStatus(s);
+      SocketAddress socketAddress = transport.getAddress();
+      if (socketAddress != null) {
+        logger.info("关闭客户端与服务端[" + socketAddress + "]连接，原因:" + errorMsg);
+      }
+
       channelLogger.log(
-          ChannelLogLevel.INFO, "{0} SHUTDOWN with {1}", transport.getLogId(), printShortStatus(s));
+          ChannelLogLevel.INFO, "{0} SHUTDOWN with {1}", transport.getLogId(), errorMsg);
       try {
         synchronized (lock) {
           if (state.getState() == SHUTDOWN) {
@@ -796,4 +801,5 @@ final class InternalSubchannel implements InternalInstrumented<ChannelStats> {
     }
     return buffer.toString();
   }
+
 }

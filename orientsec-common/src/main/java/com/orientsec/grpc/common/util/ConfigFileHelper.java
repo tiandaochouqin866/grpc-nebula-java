@@ -16,6 +16,7 @@
  */
 package com.orientsec.grpc.common.util;
 
+import com.orientsec.grpc.common.OrientsecGrpcVersion;
 import com.orientsec.grpc.common.constant.GlobalConstants;
 import com.orientsec.grpc.common.enums.DataType;
 import com.orientsec.grpc.common.model.ConfigFile;
@@ -65,7 +66,6 @@ public final class ConfigFileHelper {
    */
   private static final List<ConfigFile> consumer = new ArrayList<ConfigFile>(32);
 
-
   static {
     initProvider();
     initConsumer();
@@ -91,7 +91,7 @@ public final class ConfigFileHelper {
     ConfigFile project = new ConfigFile("project", DataType.STRING, true, null);
     ConfigFile owner = new ConfigFile("owner", DataType.STRING, true, null);
     ConfigFile version = new ConfigFile("version", DataType.STRING, true, null);
-    ConfigFile grpc = new ConfigFile("grpc", DataType.STRING, true, "1.0.0");
+    ConfigFile grpc = new ConfigFile("grpc", DataType.STRING, true, OrientsecGrpcVersion.VERSION);
 
 
     // 必填项-->固定参数
@@ -181,7 +181,7 @@ public final class ConfigFileHelper {
     ConfigFile application = new ConfigFile("application", DataType.STRING, true, null);
     ConfigFile project = new ConfigFile("project", DataType.STRING, true, null);
     ConfigFile owner = new ConfigFile("owner", DataType.STRING, false, null);
-    ConfigFile grpc = new ConfigFile("grpc", DataType.STRING, true, "1.0.0");
+    ConfigFile grpc = new ConfigFile("grpc", DataType.STRING, true, OrientsecGrpcVersion.VERSION);
 
     // 必填项-->固定参数
     ConfigFile side = new ConfigFile("side", DataType.STRING, false, "consumer");

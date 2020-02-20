@@ -16,6 +16,8 @@
  */
 package com.orientsec.grpc.common.util;
 
+import java.util.concurrent.TimeUnit;
+
 /**
  * 线程工具类
  *
@@ -32,5 +34,19 @@ public class ThreadUtils {
    */
   public static long getCurrentId() {
     return Thread.currentThread().getId();
+  }
+
+  /**
+   * 不抛异常的sleep
+   *
+   * @author sxp
+   * @since 2019/11/13
+   */
+  public static void sleepQuietly(TimeUnit unit, long duration) {
+    try {
+      unit.sleep(duration);
+    } catch (InterruptedException e) {
+      //ignore
+    }
   }
 }

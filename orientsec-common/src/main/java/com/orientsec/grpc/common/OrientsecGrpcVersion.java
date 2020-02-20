@@ -30,7 +30,7 @@ import java.security.CodeSource;
  */
 public class OrientsecGrpcVersion {
   private static final Logger logger = LoggerFactory.getLogger(OrientsecGrpcVersion.class);
-  private static final String DEFAULT_VERSION = "1.2.2";// 默认版本号
+  private static final String DEFAULT_VERSION = "1.2.3";// 默认版本号
   /**
    * 版本号
    */
@@ -44,6 +44,7 @@ public class OrientsecGrpcVersion {
    * @author sxp
    * @since 2018-5-23
    * @since 2018-5-24 先声明logger和DEFAULT_VERSION，然后再声明VERSION
+   * @since 2019-11-9 modify by sxp 为了区分不同语言版本的框架，增加语言作为前缀
    */
   private static String initVersion() {
     String version;
@@ -63,6 +64,8 @@ public class OrientsecGrpcVersion {
     if (StringUtils.isEmpty(version)) {
       version = DEFAULT_VERSION;
     }
+
+    version = "java-" + version;
 
     return version;
   }

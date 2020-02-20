@@ -4,8 +4,8 @@
     <property name="PATH" value="/tmp/logs/grpc-java" />
     <property name="FILE_PREFIX" value="examples" />
 
-    <!--格式化输出：%d表示日期, %-5level日志级别从左显示5个字符宽度, %thread表示线程名, %msg日志消息, %n换行符-->
-    <property name="PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{50} - %msg%n" />
+    <!--格式化输出：%d表示日期, %-5level日志级别从左显示5个字符宽度, %thread表示线程名, %line行号, %msg日志消息, %n换行符-->
+    <property name="PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{50} %line - %msg%n" />
 
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">

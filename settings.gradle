@@ -13,8 +13,8 @@ include ":orientsec-grpc-grpclb"
 include ":orientsec-grpc-testing"
 include ":orientsec-grpc-testing-proto"
 include ":orientsec-grpc-interop-testing"
-include ":orientsec-grpc-gae-interop-testing-jdk7"
-include ":orientsec-grpc-gae-interop-testing-jdk8"
+//include ":orientsec-grpc-gae-interop-testing-jdk7"
+//include ":orientsec-grpc-gae-interop-testing-jdk8"
 include ":orientsec-grpc-all"
 include ":orientsec-grpc-alts"
 include ":orientsec-grpc-benchmarks"
@@ -41,8 +41,8 @@ project(':orientsec-grpc-grpclb').projectDir = "$rootDir/grpclb" as File
 project(':orientsec-grpc-testing').projectDir = "$rootDir/testing" as File
 project(':orientsec-grpc-testing-proto').projectDir = "$rootDir/testing-proto" as File
 project(':orientsec-grpc-interop-testing').projectDir = "$rootDir/interop-testing" as File
-project(':orientsec-grpc-gae-interop-testing-jdk7').projectDir = "$rootDir/gae-interop-testing/gae-jdk7" as File
-project(':orientsec-grpc-gae-interop-testing-jdk8').projectDir = "$rootDir/gae-interop-testing/gae-jdk8" as File
+//project(':orientsec-grpc-gae-interop-testing-jdk7').projectDir = "$rootDir/gae-interop-testing/gae-jdk7" as File
+//project(':orientsec-grpc-gae-interop-testing-jdk8').projectDir = "$rootDir/gae-interop-testing/gae-jdk8" as File
 project(':orientsec-grpc-all').projectDir = "$rootDir/all" as File
 project(':orientsec-grpc-alts').projectDir = "$rootDir/alts" as File
 project(':orientsec-grpc-benchmarks').projectDir = "$rootDir/benchmarks" as File

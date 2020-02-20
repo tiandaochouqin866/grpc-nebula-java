@@ -19,7 +19,10 @@ package com.orientsec.grpc.consumer.internal;
 import com.orientsec.grpc.common.constant.GlobalConstants;
 import com.orientsec.grpc.common.model.BasicProvider;
 import com.orientsec.grpc.consumer.model.ServiceProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -29,6 +32,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * @since 2018/8/11
  */
 public class ProvidersConfigUtils {
+  private static Logger logger = LoggerFactory.getLogger(ProvidersConfigUtils.class);
+
   /**
    * 服务提供者的配置信息
    * <p>
@@ -213,6 +218,27 @@ public class ProvidersConfigUtils {
     if (value != null) {
       String group = (String) value;
       serviceProvider.setGroup(group);
+    }
+  }
+
+  /**
+   * 删除服务提供者
+   * <p>
+   * 客户端监控某个服务端下线后，调用该方法
+   * </p>
+   *
+   * @param removeHostPorts 集合内元素的值为host:port，例如192.168.20.110:50051
+   * @author sxp
+   * @since 2019/11/20
+   */
+  public static void removeProperty(String serviceName, Set<String> removeHostPorts) {
+    if (!serviceProvidersConfig.containsKey(serviceName)) {
+      return;
+    }
+
+    ConcurrentHashMap<String, BasicProvider> providersConfig = serviceProvidersConfig.get(serviceName);
+    for (String hostPort : removeHostPorts) {
+      providersConfig.remove(hostPort);
     }
   }
 

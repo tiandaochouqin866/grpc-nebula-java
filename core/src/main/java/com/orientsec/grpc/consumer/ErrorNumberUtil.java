@@ -1,5 +1,6 @@
 package com.orientsec.grpc.consumer;
 
+import com.orientsec.grpc.common.collect.ConcurrentHashSet;
 import com.orientsec.grpc.common.constant.GlobalConstants;
 import com.orientsec.grpc.common.resource.SystemConfig;
 import com.orientsec.grpc.common.util.DateUtils;
@@ -8,7 +9,6 @@ import com.orientsec.grpc.common.util.StringUtils;
 import com.orientsec.grpc.consumer.internal.ProvidersListener;
 import com.orientsec.grpc.consumer.internal.ZookeeperNameResolver;
 import com.orientsec.grpc.consumer.model.ServiceProvider;
-import com.orientsec.grpc.common.collect.ConcurrentHashSet;
 import io.grpc.Channel;
 import io.grpc.ClientCall;
 import io.grpc.NameResolver;
@@ -57,30 +57,6 @@ public class ErrorNumberUtil {
   }
 
   /**
-   * 服务提供者不可用时的惩罚时间，即多次请求出错的服务提供者一段时间内不再去请求
-   * <p>单位为秒,缺省值为60</p>
-   */
-  private static long punishTime = initPunishTime();// 秒
-
-  private static long punishTimetoMillis = punishTime * 1000;// 毫秒
-
-  private static long initPunishTime() {
-    String key = GlobalConstants.Consumer.Key.PUNISH_TIME;
-    long defaultValue = 60;
-    Properties properties = SystemConfig.getProperties();
-
-    long time = PropertiesUtils.getValidLongValue(properties, key, defaultValue);
-    if (time < 0) {// 可以为0
-      time = defaultValue;
-    }
-
-    logger.info(key + " = " + time);
-
-    return time;
-  }
-
-
-  /**
    * 调用失败的【客户端对应服务提供者列表】
    * <p>
    * key值为：consumerId  <br>
@@ -89,17 +65,6 @@ public class ErrorNumberUtil {
    * <p/>
    */
   private volatile static ConcurrentHashMap<String, ConcurrentHashSet<String>> failingProviders = new ConcurrentHashMap<>();
-
-  /**
-   * 各个【客户端】最后一个服务提供者的删除时间
-   * <p>
-   * key值为：consumerId  <br>
-   * value值为: 最后一个服务提供者的删除时间，以当时的毫秒时间戳记录   <br>
-   * 其中consumerId指的是客户端在zk上注册的URL的字符串形式
-   * <p/>
-   */
-  private volatile static Map<String, Long> removeProviderTimestamp = new HashMap<>();
-
 
   /**
    * 各个【客户端对应服务提供者】最后一次服务调用失败时间
@@ -146,6 +111,8 @@ public class ErrorNumberUtil {
     String providerId = FailoverUtils.getProviderId(channel);
     if (StringUtils.isEmpty(providerId)) {
       return;
+    } else {
+      logger.info("Bad provider is: " + providerId);
     }
 
     Object argument = FailoverUtils.getArgument(nameResolver);
@@ -166,7 +133,7 @@ public class ErrorNumberUtil {
     updateFailingProviders(consumerId, providerId);
 
     // 更新失败次数
-    updateFailTimes(nameResolver, consumerId, providerId, lastTimestamp, currentTimestamp, argument, method);
+    updateFailTimes(channel, nameResolver, consumerId, providerId, lastTimestamp, currentTimestamp, argument, method);
   }
 
   /**
@@ -203,7 +170,7 @@ public class ErrorNumberUtil {
    * @author sxp
    * @since 2018-6-25
    */
-  private static void updateFailTimes(NameResolver nameResolver, String consumerId, String providerId,
+  private static void updateFailTimes(Channel channel, NameResolver nameResolver, String consumerId, String providerId,
                                       long lastTimestamp, long currentTimestamp, Object argument, String method) {
     AtomicInteger failTimes;// 失败次数
 
@@ -227,74 +194,45 @@ public class ErrorNumberUtil {
 
     failTimes.incrementAndGet();
 
-    int consumerProvidersAmount = getConsumerProvidersAmount(nameResolver);// 客户端服务列表中服务提供者的数量
+    int consumerProvidersAmount;// 客户端服务列表中服务提供者的数量
     boolean isZkProviderListEmpty = isZkProviderListEmpty(nameResolver);// 注册中心上服务提供者列表是否为空
 
     if (failTimes.get() >= switchoverThreshold) {
-      if (consumerProvidersAmount == 1) {
-        if (punishTime == 0) {
-          // 什么也不做 ---- 如果服务提供者不恢复正常，之后的调用会一直报错
-        } else {
-          // 记录最后一个服务提供者的删除时间key=consumerId
-          removeProviderTimestamp.put(consumerId, currentTimestamp);
+      removeCurrentProvider(nameResolver, providerId, method);
 
-          // 将当前出错的服务提供者从备选列表中剔除
-          removeCurrentProvider(nameResolver, providerId, method);
-        }
-      } else if (consumerProvidersAmount > 1){// 存在多个服务提供者的情况
-        removeCurrentProvider(nameResolver, providerId, method);
-      }
-
-      consumerProvidersAmount = getConsumerProvidersAmount(nameResolver);// 重新获取(可能调用removeCurrentProvider)
+      consumerProvidersAmount = getConsumerProvidersAmount(nameResolver);
 
       if (consumerProvidersAmount > 0) {
-        // 重选服务提供者
         try {
-          logger.info("重选服务提供者");
+          logger.info("重选服务提供者...");
           nameResolver.resolveServerInfo(argument, method);
         } catch (Throwable t) {
-          logger.info("重选服务提供者出错", t);
+          logger.error("重选服务提供者出错", t);
         }
       }
 
       failTimes.set(0);// 重置请求出错次数
     }
 
-    consumerProvidersAmount = getConsumerProvidersAmount(nameResolver);// 重新获取(可能调用resolveServerInfo)
+    consumerProvidersAmount = getConsumerProvidersAmount(nameResolver);// 重新获取
 
-    if (consumerProvidersAmount == 0 && !isZkProviderListEmpty && punishTime > 0) {
-      long removeTime;
-      if (removeProviderTimestamp.containsKey(consumerId)) {
-        removeTime = removeProviderTimestamp.get(consumerId);
-      } else {
-        removeTime = 0L;
-      }
+    if (consumerProvidersAmount == 0 && !isZkProviderListEmpty
+            && (nameResolver instanceof ZookeeperNameResolver)) {
+      ZookeeperNameResolver zkResolver = (ZookeeperNameResolver) nameResolver;
 
-      if (currentTimestamp - removeTime >= punishTimetoMillis) {
-        // 重新查询一遍服务提供者，将注册中心上的服务列表写入当前消费者的服务列表
-        if (nameResolver instanceof ZookeeperNameResolver) {
-          ZookeeperNameResolver zkResolver = (ZookeeperNameResolver) nameResolver;
+      String serviceName = zkResolver.getServiceName();
+      Object lock = zkResolver.getLock();
 
-          String serviceName = zkResolver.getServiceName();
-          Object lock = zkResolver.getLock();
+      synchronized (lock) {// 这里相当于模拟服务列表发生变化，需要加锁
+        logger.info("重新查询一遍服务提供者，将注册中心上的服务列表写入当前消费者的服务列表...");
+        zkResolver.getAllByName(serviceName);
 
-          synchronized (lock) {// 这里相当于模拟服务列表发生变化，需要加锁
-            zkResolver.getAllByName(serviceName);
-
-            try {
-              logger.info("重选服务提供者");
-              nameResolver.resolveServerInfo(argument, method);
-            } catch (Throwable t) {
-              logger.info("重选服务提供者出错", t);
-            }
-          }
+        try {
+          logger.info("重选服务提供者......");
+          nameResolver.resolveServerInfo(argument, method);
+        } catch (Throwable t) {
+          logger.error("重选服务提供者出错", t);
         }
-
-        // 然后将removeProviderTimestamp中的这个消费者的数据删除
-        removeProviderTimestamp.remove(consumerId);
-      } else {
-        String serviceName = nameResolver.getServiceName();
-        logger.info("注册中心上存在{}服务提供者，但是客户端调用多次出错，在惩罚时间{}秒内服务提供者不可用", serviceName, punishTime);
       }
     }
   }
@@ -308,6 +246,7 @@ public class ErrorNumberUtil {
   private static void removeCurrentProvider(NameResolver nameResolver, String providerId, String method) {
     Map<String, ServiceProvider> providersForLoadBalance = nameResolver.getProvidersForLoadBalance();
     if (providersForLoadBalance == null || providersForLoadBalance.size() == 0) {
+      logger.info("客户端的备选列表为空", providerId);
       return;
     }
 
@@ -362,15 +301,13 @@ public class ErrorNumberUtil {
     ConcurrentHashSet<String> providerIds = failingProviders.get(consumerId);
     String key;
 
-    for(String providerId : providerIds) {
+    for (String providerId : providerIds) {
       key = consumerId + CONSUMERID_PROVIDERID_SEPARATOR + providerId;
       lastFailingTime.remove(key);// 服务最后一次调用出错时间
       requestFailures.remove(key);// 服务调用出错次数
     }
 
     failingProviders.remove(consumerId);// 服务提供者列表
-
-    removeProviderTimestamp.remove(consumerId);// 最后一个服务提供者的删除时间
   }
 
 }

@@ -46,4 +46,8 @@ public class Objects {
             throw new NullPointerException();
         return obj;
     }
+
+    public static boolean equals(Object a, Object b) {
+        return (a == b) || (a != null && a.equals(b));
+    }
 }

@@ -18,8 +18,9 @@ package io.grpc.internal;
 
 import io.grpc.Attributes;
 import io.grpc.NameResolver;
-import java.net.URI;
+
 import javax.annotation.Nullable;
+import java.net.URI;
 
 /**
  * A wrapper class that overrides the authority of a NameResolver, while preserving all other

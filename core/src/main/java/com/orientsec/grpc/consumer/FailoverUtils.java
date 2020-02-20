@@ -16,14 +16,15 @@
  */
 package com.orientsec.grpc.consumer;
 
+import com.orientsec.grpc.common.collect.ConcurrentHashSet;
 import com.orientsec.grpc.common.constant.GlobalConstants;
 import com.orientsec.grpc.common.resource.SystemConfig;
 import com.orientsec.grpc.common.util.GrpcUtils;
 import com.orientsec.grpc.common.util.MathUtils;
+import com.orientsec.grpc.common.util.Networks;
 import com.orientsec.grpc.common.util.PropertiesUtils;
 import com.orientsec.grpc.common.util.StringUtils;
 import com.orientsec.grpc.consumer.model.ServiceProvider;
-import com.orientsec.grpc.common.collect.ConcurrentHashSet;
 import io.grpc.Channel;
 import io.grpc.ClientCall;
 import io.grpc.EquivalentAddressGroup;
@@ -34,8 +35,6 @@ import io.grpc.internal.SharedResourceHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.List;
 import java.util.Map;
@@ -435,7 +434,6 @@ public class FailoverUtils {
     }
   }
 
-
   /**
    * 将当前出错的服务器从备选列表中去除
    *
@@ -459,6 +457,7 @@ public class FailoverUtils {
       if (size > 0) {
         try {
           Object argument = getArgument(nameResolver);
+          logger.info("重选服务提供者......");
           nameResolver.resolveServerInfo(argument, method);
         } catch (Throwable t) {
           logger.warn("重选服务提供者出错", t);
@@ -488,6 +487,7 @@ public class FailoverUtils {
    * @return 返回服务提供者Id，以IP:port的形式表示
    * @author sxp
    * @since 2018-6-25
+   * @since 2019-11-19 modify by sxp 将获取host:port的代码独立为方法
    */
   static String getProviderId(Channel channel) {
     if (channel == null) {
@@ -511,22 +511,9 @@ public class FailoverUtils {
 
     SocketAddress address = addrs.get(0);
 
-    if (address instanceof InetSocketAddress) {
-      InetSocketAddress inetAddress = (InetSocketAddress) address;
+    String providerId = Networks.getHostAndPort(address);
 
-      InetAddress addr = inetAddress.getAddress();
-      int port = inetAddress.getPort();
-
-      String ip = addr.getHostAddress();
-      if (StringUtils.isEmpty(ip)) {
-        return null;
-      }
-
-      String providerId = ip + ":" + port;
-      return providerId;
-    } else {
-      return null;
-    }
+    return providerId;
   }
 
   /**

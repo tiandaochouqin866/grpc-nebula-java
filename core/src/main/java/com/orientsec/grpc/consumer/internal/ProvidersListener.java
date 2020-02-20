@@ -18,14 +18,17 @@
 
 package com.orientsec.grpc.consumer.internal;
 
+import com.orientsec.grpc.common.util.MapUtils;
 import com.orientsec.grpc.consumer.model.ServiceProvider;
 import com.orientsec.grpc.consumer.watch.ConsumerListener;
 import com.orientsec.grpc.registry.common.URL;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -35,6 +38,7 @@ public class ProvidersListener extends AbstractListener implements ConsumerListe
   private static final Logger logger = LoggerFactory.getLogger(ProvidersListener.class);
   private boolean initData;
   private boolean isProviderListEmpty = true;
+  private static Set<String> previousHostPorts = new HashSet<>();
 
   public ProvidersListener() {
     initData = true;
@@ -53,6 +57,8 @@ public class ProvidersListener extends AbstractListener implements ConsumerListe
 
     String serviceName = zookeeperNameResolver.getServiceName();
     logger.info("监听到{}客户端的服务器列表发生变化，当前服务端的个数为{}", serviceName, newSize);
+
+    dealOfflineProviders(newProviders);
 
     Map<String, ServiceProvider> services = zookeeperNameResolver.getServiceProviderMap();
 
@@ -76,6 +82,43 @@ public class ProvidersListener extends AbstractListener implements ConsumerListe
     }
 
     initData = false;
+  }
+
+  /**
+   * 处理离线服务端
+   * <p>
+   * 1. 删除当前客户端与离线服务端之间的transport缓存  <br>
+   * 2. 删除缓存中该离线服务端的数据
+   * </p>
+   *
+   * @author sxp
+   * @since 2019/11/19
+   */
+  private void dealOfflineProviders(Map<String, ServiceProvider> newProviders) {
+    Set<String> currentHostPorts = newProviders.keySet();
+    Set<String> removeHostPorts = new HashSet<>(MapUtils.capacity(currentHostPorts.size()));
+
+    if (!previousHostPorts.isEmpty()) {
+      for (String hostPort : previousHostPorts) {
+        if (!currentHostPorts.contains(hostPort)) {
+          removeHostPorts.add(hostPort);
+        }
+      }
+    }
+
+    // 保存当前服务端列表
+    previousHostPorts.clear();
+    previousHostPorts.addAll(currentHostPorts);
+
+    if (!removeHostPorts.isEmpty()) {
+      String serviceName = zookeeperNameResolver.getServiceName();
+
+      // 删除客户端与离线服务端之间的无效subchannel缓存
+      zookeeperNameResolver.removeInvalidCacheSubchannels(removeHostPorts);
+
+      // 删除缓存中该离线服务端的数据
+      ProvidersConfigUtils.removeProperty(serviceName, removeHostPorts);
+    }
   }
 
 

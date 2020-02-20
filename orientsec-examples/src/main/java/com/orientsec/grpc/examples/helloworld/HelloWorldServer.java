@@ -32,7 +32,7 @@ import java.util.concurrent.ThreadFactory;
 public class HelloWorldServer {
   private static final Logger logger = LoggerFactory.getLogger(HelloWorldServer.class);
 
-  private static int port = 50051;
+  public static int port = 50051;
   private Server server;
 
 
@@ -70,6 +70,10 @@ public class HelloWorldServer {
 
   /**
    * main
+   * <pre>
+   * HelloWorldServer set-thread-pool 1
+   * HelloWorldServer set-port 50052
+   * </pre>
    *
    * @author sxp
    * @since 2019/8/2

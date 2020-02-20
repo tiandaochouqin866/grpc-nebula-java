@@ -30,6 +30,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * A pluggable component that resolves a target {@link URI} and return addresses to the caller.
@@ -259,6 +260,25 @@ public abstract class NameResolver {
   }
 
   /**
+   * 服务端分组信息是否满足客户端
+   *
+   * @author sxp
+   * @since 2019/11/14
+   */
+  public boolean isGroupValid(String host, int port) {
+    return true;
+  }
+
+  /**
+   * 删除客户端与离线服务端之间的无效subchannel
+   *
+   * @author sxp
+   * @since 2019/12/02
+   */
+  public void removeInvalidCacheSubchannels(Set<String> removeHostPorts) {
+  }
+
+  /**
    * Factory that creates {@link NameResolver} instances.
    *
    * @since 1.0.0
@@ -342,6 +362,14 @@ public abstract class NameResolver {
      * @since 2018/10/20
      */
     void setArgument(Object argument);
+
+    /**
+     * 删除客户端与离线服务端之间的无效subchannel
+     *
+     * @author sxp
+     * @since 2019/12/02
+     */
+    void removeInvalidCacheSubchannels(Set<String> removeHostPorts);
   }
 
   /**

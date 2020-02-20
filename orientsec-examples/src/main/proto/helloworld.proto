@@ -6,7 +6,7 @@ option java_package = "com.orientsec.grpc.examples.helloworld";
 option java_outer_classname = "HelloWorldProto";
 option objc_class_prefix = "HLW";
 
-package com.orientsec.grpc.demo.helloworld;
+package com.orientsec.bocloud.demo.helloworld;
 
 // The greeting service definition.
 service Greeter {
