@@ -165,9 +165,124 @@ b. 连接数控制流量控制：
 	orientsec-grpc-provider 模块：
 	新增 com.orientsec.grpc.provider.core.ServiceConfigUtils#getAllServicesConfig
 
+### 6. 服务注册支持配置自定义IP与端口
+
+- 场景描述
+
+使用场景1：针对利用Nginx做grpc反向代理的场景，服务提供者可以通过配置文件将Nginx的地址注册到Zookeeper
+
+使用场景2：针对服务器跨网段调用时会被映射为另一个IP的场景，应允许服务将自身地址配置为一个映射的IP
+
+- 实现思路
+
+在配置文件，增加自定义IP与端口的配置信息
+
+	# 可选，类型string，说明：服务注册时指定的IP，优先级高于common.localhost.ip参数
+	# common.service.ip=
+	
+	# 可选，类型int，说明：服务注册时指定的端口
+	# common.service.port=
+
+
+在服务端向注册中心进行注册时，会将服务真实的IP与端口添加到``real.ip``和``real.port``参数中，如果配置了自定义的IP与端口，则使用该配置的IP与端口对服务进行注册；如果未配置，则使用真实的ip与端口进行注册；无论是否有配置，真实的IP与端口都将添加到``real.ip``与``real.port``参数中。
+
+- 相关代码
+
+涉及到的模块与代码：
+
+	orientsec-grpc-provider 模块：
+	修改 com.orientsec.grpc.provider.task.RegistryTask#checkAndSaveProperties
+	修改 com.orientsec.grpc.provider.task.RegistryTask#saveServicesConfig
+	修改 com.orientsec.grpc.provider.task.RegistryTask#doRegister
+
+
+### 7. 服务端支持注册到多套注册中心，支持不同注册中心注册不同的IP、端口
+
+- 使用场景
+
+使用场景1：同一台服务器上的应用同时为多套环境的其它提供服务。
+
+使用场景2：生产环境内网提供服务时，服务注册使用局域网IP、端口；生产环境向互联网提供服务时，服务注册使用映射的公网IP和端口。
+
+- 实现思路
+
+修改服务注册、注销方法，在进行服务注册或注销时，如果配置了多套注册中心，对每个注册中心进行操作。
+
+实现时需要注意，不同的注册中心可以配置不同的注册路径、不同的权限配置以及不同的服务IP与端口配置。
+
+- 参数配置方法
+
+在服务端配置文件“dfzq-grpc-config.properties”添加额外使用的注册中心。可以增加多个注册中心，参数格式如下所示。
+
+	# 必填,类型string,说明: 注册中心服务器列表，既支持单机，也支持集群
+	# zookeeper.host.server=168.61.2.23:2181,168.61.2.24:2181,168.61.2.25:2181
+	zookeeper.host.server=192.168.1.25:2181
+
+
+	# 可选，类型string,说明：服务端额外使用的注册中心服务器列表-01
+	# 如果要开启【服务端注册到多套注册中心功能】，该参数需要配置
+	zookeeper.service-register-01.host.server=192.168.3.52:2181
+	
+	# 可选，类型string，说明服务注册根路径,默认值/Application/grpc
+	# zookeeper.service-register-01.root=
+	
+	# 可选，类型string，说明：digest模式访问控制用户名
+	# zookeeper.service-register-01.acl.username=
+	
+	# 可选，类型string，说明：digest模式访问控制密码
+	# zookeeper.service-register-01.acl.password=
+	
+	# 可选，类型String，说明：往注册中心上注册的服务的ip地址
+	# zookeeper.service-register-01.service.ip=
+	
+	# 可选，类型int，说明：往注册中心上注册的服务的端口号
+	# zookeeper.service-register-01.service.port=
+
+
+
+	# 可选，类型string,说明：服务端额外使用的注册中心服务器列表-02
+	zookeeper.service-register-02.host.server=192.168.4.25:2181
+	
+	# 可选，类型string，说明服务注册根路径,默认值/Application/grpc
+	# zookeeper.service-register-02.root=
+	
+	# 可选，类型string，说明：digest模式访问控制用户名
+	# zookeeper.service-register-02.acl.username=
+	
+	# 可选，类型string，说明：digest模式访问控制密码
+	# zookeeper.service-register-02.acl.password=
+	
+	# 可选，类型String，说明：往注册中心上注册的服务的ip地址
+	# zookeeper.service-register-02.service.ip=
+	
+	# 可选，类型int，说明：往注册中心上注册的服务的端口号
+	# zookeeper.service-register-02.service.port=
+	
+	# ...
+
+
+
+- 相关代码
+
+涉及到的模块和代码:
+
+	orientsec-grpc-common 模块：
+	新增类   com.orientsec.grpc.common.model.RegistryCenter
+	新增类   com.orientsec.grpc.common.resource.RegisterCenterConf
+	新增类   com.orientsec.grpc.common.resource.ProviderRegisterCenterConf
+	
+	orientsec-grpc-registry 模块：
+	修改 com.orientsec.grpc.registry.common.URL
+	修改 com.orientsec.grpc.registry.common.utils.UrlUtils
+	修改 com.orientsec.grpc.registry.service.Provider    
+	修改 com.orientsec.grpc.registry.zookeeper.ZookeeperRegistry
+	修改 com.orientsec.grpc.registry.remoting.curator.ZkACLProvider
+	修改 com.orientsec.grpc.registry.remoting.curator.CuratorZookeeperClient
+	修改 com.orientsec.grpc.registry.support.AbstractRegistryFactory
 
 ## 二、客户端
-### 6. 基于zookeeper的NameResolver
+
+### 1. 基于zookeeper的NameResolver
 - 原理分析
 
 原生 grpc 有两种方式确定服务端：
@@ -197,7 +312,7 @@ b. 连接数控制流量控制：
 	新增com.orientsec.grpc.consumer.internal.ZookeeperNameResolverProvider
 	修改配置文件 resources\META-INF\services\io.grpc.NameResolverProviders
 
-### 7. 客户端启动时，注册客户端信息
+### 2. 客户端启动时，注册客户端信息
 - 原理分析
 
 客户端启动时，会调用 `io.grpc.internal.ManagedChannelImpl#ManagedChannelImpl` 创建 `ManagedChannel` 对象。在创建 `ManagedChannel` 对象时，增加调用注册客户端信息的接口。
@@ -220,7 +335,7 @@ b. 连接数控制流量控制：
 	新增 com.orientsec.grpc.consumer.core.DefaultConsumerServiceRegistryImpl#register
 
 
-### 8. 客户端关闭时，注销客户端信息
+### 3. 客户端关闭时，注销客户端信息
 - 原理分析
 
 客户端关闭时会调用 `io.grpc.internal.ManagedChannelImpl#shutdown` ，这个方法会调用 `com.orientsec.grpc.consumer.internal.ZookeeperNameResolver#shutdown` ，在这个方法里可以调用注销客户端信息的接口。
@@ -242,7 +357,7 @@ b. 连接数控制流量控制：
 	新增 com.orientsec.grpc.consumer.core.DefaultConsumerServiceRegistryImpl#unSubscribe
 
 
-### 9. 监听服务端信息
+### 4. 监听服务端信息
 - 原理分析
 
 在客户端启动，注册客户端信息时，同时注册一个监听器，用来监听服务端列表的变化。同时，将服务端列表存储到内存中。
@@ -262,7 +377,7 @@ b. 连接数控制流量控制：
 	新增 com.orientsec.grpc.consumer.internal.ProvidersListener
 
 
-### 10. 实现客户端对路由规则的解析方法，用来过滤服务端列表
+### 5. 实现客户端对路由规则的解析方法，用来过滤服务端列表
 - 原理分析
 
 ![路由规则判断流程图](http://r.photo.store.qq.com/psb?/V120MUVE0N7Z5s/Suk6Hl3jblUOefGpphreR*Mn8qGtmfV6EqVLCRgQfAU!/r/dGwBAAAAAAAA)
@@ -280,7 +395,7 @@ b. 连接数控制流量控制：
 	新增 com.orientsec.grpc.consumer.routers.ConditionRouter
 	新增 com.orientsec.grpc.consumer.internal.RoutersListener
 
-### 11. 支持路由规则可以设置为IP段、项目
+### 6. 支持路由规则可以设置为IP段、项目
 - 原理分析
 
 路由规则由两个条件组成，分别用于对客户端和服务端进行匹配。比如有这样一条规则：
@@ -322,7 +437,7 @@ b. 连接数控制流量控制：
 	新增 com.orientsec.grpc.registry.common.utils.UrlUtils#isMatchGlobPattern
 
 
-### 12. 监听路由规则，获取可访问的服务列表
+### 7. 监听路由规则，获取可访问的服务列表
 - 原理分析
 
 在客户端启动注册客户端信息时，同时注册一个监听器，用来监听路由规则。路由规则在内存中缓存一份。
@@ -404,7 +519,7 @@ b. 连接数控制流量控制：
     orientsec-grpc-core 模块：
     新增：com.orientsec.grpc.consumer.internal.RoutersListener		
 
-### 13. 监听服务端权重信息
+### 8. 监听服务端权重信息
 - 原理分析
 
 服务端权重表示的是服务端提供服务的能力，也可以简单地理解为服务端所在服务器的配置。服务端的权重越高，表示服务器提供服务的能力越强。
@@ -425,7 +540,7 @@ b. 连接数控制流量控制：
 	新增 com.orientsec.grpc.consumer.internal.ConfiguratorsListener
 	新增 com.orientsec.grpc.consumer.internal.ProviderWeightHandler
 
-### 14. 监听服务端是否过时
+### 9. 监听服务端是否过时
 - 原理分析
 
 缺省情况下，服务端过时标志参数值为false。如果客户端就检测到服务端的过时标志被设置为true，那么客户端调用该服务端时会记录一条警告类型的日志信息。
@@ -443,7 +558,7 @@ b. 连接数控制流量控制：
 	新增 com.orientsec.grpc.consumer.internal.ProviderDeprecatedHandler
 
 
-### 15. 客户端监听配置信息的更新
+### 10. 客户端监听配置信息的更新
 - 原理分析
 
 客户端需要监听的配置信息有以下几种：
@@ -489,7 +604,7 @@ b. 连接数控制流量控制：
 
 
 
-### 16. 限制客户端对某个服务每秒钟的请求次数（Requests Per Second）
+### 11. 限制客户端对某个服务每秒钟的请求次数（Requests Per Second）
 - 原理分析
 
 增加对客户端请求数控制的功能，限制客户端对某个服务每秒钟的请求次数（Requests Per Second）。
@@ -528,7 +643,7 @@ c. 取出调用当前服务的客户端在一秒钟内的调用次数，判断�
 	新增 io.grpc.internal.ClientCallImpl#getFullMethod
 	新增 io.grpc.PartialForwardingClientCall#getFullMethod
 
-### 17. 两种负载均衡模式
+### 12. 两种负载均衡模式
 - 原理分析
 
 支持两种模式：一种是“请求负载均衡”，另一种是“连接负载均衡”。
@@ -537,9 +652,15 @@ c. 取出调用当前服务的客户端在一秒钟内的调用次数，判断�
 
 默认情况下为“连接负载均衡”。
 
+在“连接负载均衡”模式下，可配置连接自动切换的间隔时间，默认情况下为每隔10分钟自动切换连接。参数配置方法如下：
+
+	# 可选，默认int，缺省值10，单位分钟，说明：负载均衡模式为connection时，设置连接自动切换的时间
+	# consumer.loadbalance.connection.switchTime=10
+
+
 - 实现思路
 
-客户端每次调用服务端时，都会调用 ChannelTransportProvider#get 方法向服务端发送数据，在这段代码中判断当前客户端的负载均衡模式。如果负载均衡模式为“请求负载均衡”，先调用负载均衡算法重新选择服务端，然后再继续原来的流程。
+客户端每次调用服务端时，都会调用 ChannelTransportProvider#get 方法向服务端发送数据，在这段代码中判断当前客户端的负载均衡模式。如果负载均衡模式为“请求负载均衡”，先调用负载均衡算法重新选择服务端，然后再继续原来的流程；如果负载均衡模式为“连接负载均衡”，会先获取当前时间与上次切换连接的时间进行比较，当满足配置的切换时间（默认10分钟）时，会先调用负载均衡算法重新选择服务端，并记录当前时间，再继续原来的流程。
 
 - 相关代码
 
@@ -549,7 +670,7 @@ c. 取出调用当前服务的客户端在一秒钟内的调用次数，判断�
 	修改 io.grpc.internal.ManagedChannelImpl.ChannelTransportProvider#get
 
 
-### 18. 四种负载均衡算法
+### 13. 四种负载均衡算法
 - 原理分析
 
 框架支持以下四种负载均衡算法：
@@ -654,7 +775,7 @@ Hash函数使用md5算法，然后将得到的字节数组通过位运算映射�
 	新增 com.orientsec.grpc.consumer.lb.ConsistentHashLoadBalancer
 
 
-### 19. 服务容错
+### 14. 服务容错
 - 原理分析
 
 配置服务调用出错后自动重试次数后，可以启用服务容错功能，当调用某个服务端出错后，框架自动尝试切换到提供相同服务的服务端再次发起请求。
@@ -695,7 +816,7 @@ Hash函数使用md5算法，然后将得到的字节数组通过位运算映射�
 	修改 io.grpc.stub.ClientCalls#blockingServerStreamingCall(Channel, MethodDescriptor<ReqT,RespT>, CallOptions, ReqT)    
 
 
-### 20. grpc断线重连指数退避算法支持参数配置功能
+### 15. grpc断线重连指数退避算法支持参数配置功能
 - 原理分析
 
 当grpc连接到服务端发生失败时，通常希望不要立即重试(以避免泛滥的网络流量或大量的服务请求)，而是做某种形式的指数退避算法。
@@ -729,10 +850,79 @@ Hash函数使用md5算法，然后将得到的字节数组通过位运算映射�
 	修改 io.grpc.internal.ExponentialBackoffPolicy
 	新增 com.orientsec.grpc.common.util.PropertiesUtils#getValidDoubleValue
 
+### 16. 支持失败服务恢复到服务端列表时间自定义配置
+
+- 原理分析
+
+调用某个服务端，如果连续出错5次（5次内有一次调用成功，会重置失败次数，以达到连续的效果；5这个数值支持配置），会把该服务从服务端列表中摘除该服务端节点，通过FATAL ERROR信息的日志记录服务调用失败的相关情况；被移除的服务在10分钟后（时间支持配置），自动恢复到服务端列表中。
+
+- 实现思路
+
+在配置文件，增加服务恢复时间的配置
+
+	# 可选,类型integer,缺省值5,说明：连续多少次请求出错，自动切换到提供相同服务的新服务器
+	# consumer.switchover.threshold=5
+	
+	# 可选，类型int，说明：服务端节点调用失败被移除请求列表后，经过多长时间将该服务端节点重新添加回服务端候选列表
+	# 单位毫秒，默认值600000，即600秒，即10分钟
+	# consumer.service.recoveryMilliseconds=600000
+
+
+服务调用失败时，比较当前失败服务的调用次数，如果服务端失败达到5次时，进行以下处理：
+
+（1）将该服务从服务端列表中移除，并通过FATAL ERROR信息的日志进行输出；
+
+（2）通过一个延迟执行的线程，在10分钟后，将该服务恢复到服务端列表中；
+
+（3）重置该服务的失败次数，并重选服务提供者。
+
+- 相关代码
+
+涉及到的模块与代码：
+
+	orientsec-grpc-core 模块：
+	修改 com.orientsec.grpc.consumer.ErrorNumberUtil#recordInvokeInfo
+	修改 com.orientsec.grpc.consumer.ErrorNumberUtil#removeCurrentProvider
+	新增 com.orientsec.grpc.consumer.ErrorNumberUtil#resetFailTimes
+
+
+### 17. 服务调用出错后支持自动重试
+
+- 原理分析
+
+当服务调用出错时，可通过配置的重试次数进行重试，调用重试次数的配置支持到服务级别以及服务方法级别；重试次数配置优先级如下：方法级别 > 服务级别 > 默认重试配置
+
+- 实现思路
+
+在配置文件，增加服务调用重试次数的相关配置，具体如下：
+
+	
+	# 可选,类型int,缺省值0,0表示不进行重试,说明:服务调用出错后自动重试次数
+	# consumer.default.retries=0
+	
+	# 可选,类型int,说明:指定服务名称的服务调用出错后,自动重试次数,[]中配置指定的服务名称
+	# consumer.default.retries[com.orientsec.bocloud.demo.helloworld.Greeter]=0
+	
+	# 可选,类型int,说明:指定服务的方法调用出错后,自动重试次数,[]中配置指定服务名称及方法名
+	# 最小可到指定到方法名
+	# consumer.default.retries[com.orientsec.bocloud.demo.helloworld.Greeter.sayHello]=0
+
+
+当某一服务在调用出错时，框架会进行调用重试，重试的次数根据配置来确定。在进行重试时，会根据当前出错服务的方法、服务名、默认配置来选择重试次数；获取重试次数的优先级：方法级别 > 服务级别 > 默认重试配置，确认重试次数后，会进行服务调用重试。
+
+例：当前服务名：com.helloworld，方法名为sayHello。当sayHello方法调用出错时，优先从配置文件获取consumer.default.retries[com.helloworld.sayHello]属性值作为重试次数进行调用重试；如果未配置，则获取consumer.default.retries[com.helloworld]属性值，若该属性也未配置，则取consumer.default.retries的配置作为重试次数。
+
+- 相关代码
+
+涉及到的模块与代码：
+
+	orientsec-grpc-stub 模块：
+	修改 io.grpc.stub.ClientCalls#failureRetry
+
 
 ## 三、公共
 
-### 21. 支持Zookeeper开启ACL
+### 1. 支持Zookeeper开启ACL
 - 原理分析
 
 zookeeper支持以下几种权限控制方案：
@@ -771,7 +961,7 @@ zookeeper支持以下几种权限控制方案：
 	新增 com.orientsec.grpc.registry.remoting.curator.ZkACLProvider
 	修改 com.orientsec.grpc.registry.remoting.curator.CuratorZookeeperClient#CuratorZookeeperClient
 
-### 22. 主备切换
+### 2. 主备切换
 - 使用场景
 
 多个服务端提供服务的时候，能够区分主服务器和备服务器。当主服务器可用时客户端只能调用主服务器，不能调用备服务器；当所有主服务器不可用时，客户端自动切换到备服务器进行服务调用；当主服务器恢复时，客户端自动切换到主服务器进行服务调用。
@@ -800,7 +990,7 @@ zookeeper支持以下几种权限控制方案：
 	修改 com.orientsec.grpc.consumer.internal.ZookeeperNameResolver中public Map<String, ServiceProvider> getProvidersByUrls(List<URL> urls)方法
 
 
-### 23. 支持优先级的服务分组
+### 3. 支持优先级的服务分组，支持区分服务名进行配置分组
 - 使用场景
 
 场景1：服务分组。当服务集群非常大时，客户端不必与每个服务节点建立连接，通过对服务分组，一个客户端只与一个服务组连接。
@@ -812,15 +1002,28 @@ zookeeper支持以下几种权限控制方案：
 
 - 实现思路
 
-服务端添加一个group属性，用来标识服务端的服务分组，group缺省值为空，表示没有服务分组。客户端也添加一个group属性，用来标识当前客户端可以调用的服务端分组。
+服务端添加一个group属性，用来标识服务端的服务分组，group缺省值为空，表示没有服务分组。客户端添加一个invoke.group属性，用来标识当前客户端可以调用的服务端分组。
 
-当客户端启动时，首先根据服务名获取所有的服务端列表，然后根据客户端的group属性和每个服务端的group属性，对服务端列表进行筛选操作：
+当客户端启动时，首先根据服务名获取所有的服务端列表，然后根据客户端的invoke.group属性和每个服务端的group属性，对服务端列表进行筛选操作：
 
-(1) 当客户端group属性为空的时候，服务列表不发生变化
+(1) 当客户端invoke.group属性为空的时候，服务列表不发生变化
 
-(2) 当客户端group属性不为空的时候，首先获取高优先级分组的服务端，如果获取不到，再获取优先级低的服务端。只要某个优先级分组的服务端获取到，就将获取到的服务端作为客户端的服务端列表。如果所有的优先级的分组服务端都没有获取到，客户端报错，提示找不到服务端。
+(2) 当客户端invoke.group属性不为空的时候，首先获取高优先级分组的服务端，如果获取不到，再获取优先级低的服务端。只要某个优先级分组的服务端获取到，就将获取到的服务端作为客户端的服务端列表。如果所有的优先级的分组服务端都没有获取到，客户端报错，提示找不到服务端。
 
 同时，客户端监听注册中心中服务端和客户端分组的变化，一旦监听到变化，重新获取服务端列表，并进行以上筛选操作。
+
+客户端与服务端允许对指定服务名的分组进行单独配置，配置项如下所示：
+
+	# 客户端consumer 在中括号[]中配置指定服务的服务名
+	consumer.invoke.group[com.orientsec.bocloud.demo.helloworld.Greeter]=A1
+	
+	# 服务端provider 在中括号[]中配置指定服务的服务名
+	provider.group[com.orientsec.bocloud.demo.helloworld.Greeter]=B1
+
+
+指定服务名的配置方式优先级高于未指定服务名的配置方式。
+
+例：服务名为A的服务进行注册时，如果同时配置了group与group[A]两个属性，优先取group[A]的属性值作为服务的分组信息，同时如果有服务名为B的服务进行注册时，因为没有配置group[B]这个属性，所以会取group的属性值作为服务的分组信息。
 
 
 - 相关代码
@@ -831,77 +1034,13 @@ zookeeper支持以下几种权限控制方案：
 	新增 com.orientsec.grpc.consumer.internal.ProviderGroupHandler
 	修改 com.orientsec.grpc.consumer.internal.ConfiguratorsListener中public void notify(List<URL> urls)方法
 	修改 com.orientsec.grpc.consumer.internal.ZookeeperNameResolver中public Map<String, ServiceProvider> getProvidersByUrls(List<URL> urls)方法
-
-### 24. 服务端支持注册到多套注册中心
-- 使用场景
-
-服务端启动的时候，在注册到主注册中心的同时，也支持时注册到其他多个注册中心。主要使用在如下场景：同一台服务器上的应用同时为多套环境的其它提供服务。
-
-- 实现思路
-
-修改服务注册、注销方法，在进行服务注册或注销时，如果配置了多套注册中心，对每个注册中心进行操作。
-
-实现时需要注意，不同的注册中心可以配置不同的注册路径、不同的权限配置。
-
-- 参数配置方法
-
-在服务端配置文件“dfzq-grpc-config.properties”添加额外使用的注册中心。可以增加多个注册中心，参数格式如下所示。
-
-	# 必填,类型string,说明: 注册中心服务器列表，既支持单机，也支持集群
-	# zookeeper.host.server=168.61.2.23:2181,168.61.2.24:2181,168.61.2.25:2181
-	zookeeper.host.server=192.168.1.25:2181
-
-
-	# 可选，类型string,说明：服务端额外使用的注册中心服务器列表-01
-	# 如果要开启【服务端注册到多套注册中心功能】，该参数需要配置
-	zookeeper.service-register-01.host.server=192.168.3.52:2181
 	
-	# 可选，类型string，说明服务注册根路径,默认值/Application/grpc
-	# zookeeper.service-register-01.root=
-	
-	# 可选，类型string，说明：digest模式访问控制用户名
-	# zookeeper.service-register-01.acl.username=
-	
-	# 可选，类型string，说明：digest模式访问控制密码
-	# zookeeper.service-register-01.acl.password=
-	
-	
-	# 可选，类型string,说明：服务端额外使用的注册中心服务器列表-02
-	zookeeper.service-register-02.host.server=192.168.4.25:2181
-	
-	# 可选，类型string，说明服务注册根路径,默认值/Application/grpc
-	# zookeeper.service-register-02.root=
-	
-	# 可选，类型string，说明：digest模式访问控制用户名
-	# zookeeper.service-register-02.acl.username=
-	
-	# 可选，类型string，说明：digest模式访问控制密码
-	# zookeeper.service-register-02.acl.password=
-	
-	# ...
+	orientsec-grpc-provider 模块：
+	修改 com.orientsec.grpc.provider.task.RegistryTask中checkAndSaveProperties方法
+	修改 com.orientsec.grpc.provider.task.RegistryTask中saveServicesConfig方法
 
 
-
-- 相关代码
-
-涉及到的模块和代码:
-
-	orientsec-grpc-common 模块：
-	新增类   com.orientsec.grpc.common.model.RegistryCenter
-	新增类   com.orientsec.grpc.common.resource.RegisterCenterConf
-	新增类   com.orientsec.grpc.common.resource.ProviderRegisterCenterConf
-
-	orientsec-grpc-registry 模块：
-	修改 com.orientsec.grpc.registry.common.URL
-	修改 com.orientsec.grpc.registry.common.utils.UrlUtils
-	修改 com.orientsec.grpc.registry.service.Provider    
-	修改 com.orientsec.grpc.registry.zookeeper.ZookeeperRegistry
-	修改 com.orientsec.grpc.registry.remoting.curator.ZkACLProvider
-	修改 com.orientsec.grpc.registry.remoting.curator.CuratorZookeeperClient
-	修改 com.orientsec.grpc.registry.support.AbstractRegistryFactory
-
-
-### 25. 实现系统内部grpc服务与系统外部grpc服务的区分
+### 4. 实现系统内部grpc服务与系统外部grpc服务的区分
 - 使用场景
 
 支持同一项目不同类型的grpc服务具有不同的可见性。
@@ -980,6 +1119,81 @@ zookeeper支持以下几种权限控制方案：
 
 	orientsec-grpc-core 模块：
 	修改 com.orientsec.grpc.consumer.internal.ZookeeperNameResolver
+
+### 5. 支持注册中心断线自动重连最长时间配置
+
+- 原理分析
+
+Zookeeper Client提供了以下几种重试策略：
+
+（1）ExponentialBackoffRetry：该重试策略随着重试次数的增加，重试的间隔时间呈指数增长
+
+（2）RetryNTimes：该重试策略重试指定次数，每隔固定时间进行重试
+
+（3）RetryOneTime：该重试策略只重试一次
+
+（4）RetryUntilElapsed：该重试策略对重试次数不做限制，但对总的重试时间做限制
+
+由于需要支持最长30天及以上的重连时间，超出RetryUntilElapsed的最长重试时间，所以选用RetryNTimes作为重连的策略。
+
+- 实现思路
+
+配置文件中增加zookeeper断线重连最长时间配置项。
+
+	# 可选,类型int,缺省值30,单位天,即缺省值30天,说明:ZK断线重连最长时间
+	# zookeeper.retry.time=30
+
+
+修改创建Zookeeper Client的代码，根据配置的重连最长时间计算重连的次数，创建重试指定次数的重试策略（RetryNTimes），在创建Zookeeper Client选用该重试策略并启用。
+
+- 相关代码
+
+涉及到的模块与代码：
+
+	orientsec-grpc-registry 模块：
+	修改 com.orientsec.grpc.registry.remoting.curator.CuratorZookeeperClient
+
+
+### 6. 注册中心容灾、降级
+- 功能描述  
+  容灾：注册中心不可用时服务端和客户端可以正常启动，注册中心恢复后注册信息需要自动注册到注册中心   
+  降级：可以端可以通过配置文件指定服务端地址，此时即使注册中心不可用，客户端也可以访问服务端；这种情况下，注册中心即使恢复，也不会再去访问注册中心获取最新的服务列表
+
+- 实现思路        
+  （1）服务端启动时，将自动向zk注册Provider信息的任务代码提取到一个新的线程   
+  （2）客户端启动时，将自动向zk注册Consumer信息的任务代码提取到一个新的线程    
+  （3）获取配置文件中（service.server.list）提供服务的服务器地址列表：如果不为null，将服务提供者存入allProviders、serviceProviderMap中，客户端进行服务调用（忽略注册中心）；否则客户端注册zk，获取zk的服务提供者列表进行服务调用    
+  （4）**特别注意**：一旦配置service.server.list参数，客户端运行过程中，即使注册中心恢复可用，框架也不会访问注册中心。如果需要从配置中心查找服务端信息，需要注释掉该参数，并重启客户端应用。 
+  
+- 配置方法 
+
+在配置文件“dfzq-grpc-config.properties”增加如下配置：
+
+	# 可选,类型string,说明：该参数用来手动指定提供服务的服务器地址列表。
+	# 使用场合: 在zookeeper注册中心不可用时，通过该参数指定服务器的地址；如果有多个服务，需要配置多个参数。
+	# 特别注意: 一旦配置该参数，客户端运行过程中，即使注册中心恢复可用，框架也不会访问注册中心。
+	#           如果需要从配置中心查找服务端信息，需要注释掉该参数，并重启客户端应用。
+	# xxx表示客户端调用的服务名称
+	# service.server.list[xxx]=10.45.0.100:50051
+	service.server.list[xxx]=10.45.0.100:50051,10.45.0.101:50051,10.45.0.102:50051
+
+- 相关代码
+
+涉及到的模块和代码:
+
+	orientsec-grpc-core 模块（服务端）：    
+	新增 io.grpc.internal.ServerImpl#registerRunnable 
+	修改 io.grpc.internal.ServerImpl#start    
 	
+	orientsec-grpc-core 模块（客户端）：    
+    新增 io.grpc.internal.ManagedChannelImpl#registryRunnable 
+	修改 io.grpc.internal.ManagedChannelImpl#ManagedChannelImpl   
+	修改 io.grpc.internal.ManagedChannelImpl#enterIdleMode    
+	
+	新增 com.orientsec.grpc.consumer.internal.ZookeeperNameResolver#getProvidersFromConfigFile    
+    新增 com.orientsec.grpc.consumer.internal.ZookeeperNameResolver#genProvidersCacheByConfigFile 
+    修改 com.orientsec.grpc.consumer.internal.ZookeeperNameResolver#ZookeeperNameResolver 
+    修改 com.orientsec.grpc.consumer.internal.ZookeeperNameResolver#registry  
+    修改 com.orientsec.grpc.consumer.internal.ZookeeperNameResolver#getAllByName      
 
-
+	修改 com.orientsec.grpc.consumer.internal.ProvidersListener#notify 

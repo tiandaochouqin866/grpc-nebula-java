@@ -54,7 +54,7 @@ grpc是一个多语言、高性能、开源的通用远程过程调用(RPC)框�
 依赖信息如下：
 
 	<properties>
-        <orientsec.grpc.version>1.2.2</orientsec.grpc.version>               
+        <orientsec.grpc.version>1.2.4</orientsec.grpc.version>               
     </properties>
 
 	 <dependencies>
@@ -80,7 +80,7 @@ grpc是一个多语言、高性能、开源的通用远程过程调用(RPC)框�
 
 - `groupId` 从 `io.grpc` 修改为 `com.orientsec.grpc`
 - `artifactId` 在原来的基础上增加了前缀 `orientsec-`
-- `version` 使用 `${orientsec.grpc.version}` ( 即 `1.2.2` )
+- `version` 使用 `${orientsec.grpc.version}` ( 即 `1.2.4` )
 
 
 ### 2. 框架配置文件dfzq-grpc-config.properties
@@ -140,11 +140,6 @@ maven项目，可以将配置文件放在源码/src/main/resources/config目录�
 	# 可选,类型int,缺省值100,说明:服务provider权重，是服务provider的容量，在负载均衡基于权重的选择算法中用到
 	provider.weight=100
 	
-	# 可选,类型String,固定值provider,说明:provider表示服务提供端，consumer表示服务消费端
-	provider.side=provider
-	
-	# 可选,类型string,缺省值1.0.0,说明:gRPC 协议版本号
-	provider.grpc=1.2.2
 	# ------------ end of provider config ------------
 	
 	
