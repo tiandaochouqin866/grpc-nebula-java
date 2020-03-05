@@ -19,7 +19,9 @@ package com.orientsec.grpc.consumer;
 import com.orientsec.grpc.common.collect.ConcurrentHashSet;
 import com.orientsec.grpc.common.constant.GlobalConstants;
 import com.orientsec.grpc.common.resource.SystemConfig;
+import com.orientsec.grpc.common.util.ExceptionUtils;
 import com.orientsec.grpc.common.util.GrpcUtils;
+import com.orientsec.grpc.common.util.IpPortUtils;
 import com.orientsec.grpc.common.util.MathUtils;
 import com.orientsec.grpc.common.util.Networks;
 import com.orientsec.grpc.common.util.PropertiesUtils;
@@ -30,6 +32,8 @@ import io.grpc.ClientCall;
 import io.grpc.EquivalentAddressGroup;
 import io.grpc.LoadBalancer;
 import io.grpc.NameResolver;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.grpc.internal.GrpcUtil;
 import io.grpc.internal.SharedResourceHolder;
 import org.slf4j.Logger;
@@ -270,7 +274,7 @@ public class FailoverUtils {
    * @since 2019-07-22
    * @since 2019-08-27 modify by sxp 代码完善
    */
-  public static <ReqT, RespT> void recordRequest(Channel channel, boolean success, ClientCall<ReqT, RespT> call) {
+  public static <ReqT, RespT> void recordRequest(Channel channel, boolean success, ClientCall<ReqT, RespT> call, Exception e) {
     if (channel == null) {
       return;
     }
@@ -285,7 +289,12 @@ public class FailoverUtils {
       return;
     }
 
-    String providerId = getProviderId(channel);
+    if (success && e != null) {
+      logger.error("服务调用成功，怎么还有异常信息呢???");
+      e = null;
+    }
+
+    String providerId = getProviderId(channel, e);
     if (StringUtils.isEmpty(providerId)) {
       return;
     }
@@ -297,9 +306,7 @@ public class FailoverUtils {
     long currentTime = System.currentTimeMillis();
 
     // 连续多次请求出错，自动切换到提供相同服务的新服务器
-    if(!success) {
-      ErrorNumberUtil.recordFailure(call, channel, method);
-    }
+    ErrorNumberUtil.recordInvokeInfo(call, channel, method, success, e);
 
     // 熔断机制
     if (!enabled) {
@@ -489,7 +496,38 @@ public class FailoverUtils {
    * @since 2018-6-25
    * @since 2019-11-19 modify by sxp 将获取host:port的代码独立为方法
    */
-  static String getProviderId(Channel channel) {
+  static String getProviderId(Channel channel, Exception e) {
+    // 先尝试从Exception中获取出错的服务端地址
+    /*
+    io.grpc.StatusRuntimeException: UNAVAILABLE: io exception
+      at io.grpc.stub.ClientCalls.toStatusRuntimeException(ClientCalls.java:414)
+      ...
+    Caused by: io.netty.channel.AbstractChannel$AnnotatedConnectException: Connection refused: no further information: /192.168.106.3:50062
+      at sun.nio.ch.SocketChannelImpl.checkConnect(Native Method)
+      ...
+    */
+    if (e != null && (e instanceof StatusRuntimeException)) {
+      StatusRuntimeException statusException = (StatusRuntimeException) e;
+      Status status = statusException.getStatus();
+      if (Status.Code.UNAVAILABLE.equals(status.getCode())) {
+        String errorMsg = ExceptionUtils.getExceptionStackMsg(e);
+        if (StringUtils.isNotEmpty(errorMsg)) {
+          int startIndex = errorMsg.indexOf("Connection refused: no further information");
+          if (startIndex >= 0) {
+            int endIndex = errorMsg.indexOf("\n", startIndex);
+            if (endIndex >= 0) {
+              String message = errorMsg.substring(startIndex, endIndex);
+              // 提取出IP:port
+              String ipAndPort = IpPortUtils.getAddress(message);
+              if (StringUtils.isNotEmpty(ipAndPort)) {
+                return ipAndPort;
+              }
+            }
+          }
+        }
+      }
+    }
+
     if (channel == null) {
       return null;
     }

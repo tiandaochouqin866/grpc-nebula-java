@@ -19,6 +19,7 @@ package com.orientsec.grpc.consumer.internal;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.orientsec.grpc.common.collect.ConcurrentHashSet;
 import com.orientsec.grpc.common.constant.GlobalConstants;
 import com.orientsec.grpc.common.constant.RegistryConstants;
 import com.orientsec.grpc.common.resource.RegisterCenterConf;
@@ -28,12 +29,14 @@ import com.orientsec.grpc.common.util.IpUtils;
 import com.orientsec.grpc.common.util.LoadBalanceUtil;
 import com.orientsec.grpc.common.util.MapUtils;
 import com.orientsec.grpc.common.util.StringUtils;
+import com.orientsec.grpc.common.util.ThreadUtils;
 import com.orientsec.grpc.consumer.FailoverUtils;
 import com.orientsec.grpc.consumer.check.CheckDeprecatedService;
 import com.orientsec.grpc.consumer.core.ConsumerServiceRegistry;
 import com.orientsec.grpc.consumer.model.ServiceProvider;
 import com.orientsec.grpc.consumer.routers.Router;
 import com.orientsec.grpc.registry.common.URL;
+import com.orientsec.grpc.registry.common.utils.CollectionUtils;
 import com.orientsec.grpc.registry.common.utils.UrlUtils;
 import com.orientsec.grpc.registry.service.Consumer;
 import io.grpc.Attributes;
@@ -57,6 +60,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -102,6 +106,8 @@ public class ZookeeperNameResolver extends NameResolver {
   // 当前服务接口的所有提供者列表(未经过路由规则过滤)
   private Map<String, ServiceProvider> allProviders = new ConcurrentHashMap<String, ServiceProvider>();
 
+  // 配置文件中指定的服务提供者
+  private Set<ServiceProvider> configFileProviders = new ConcurrentHashSet<>();
   private Map<String, ServiceProvider> serviceProviderMap = new ConcurrentHashMap<String, ServiceProvider>();
   private Map<String, ServiceProvider> providersForLoadBalance = new ConcurrentHashMap<String, ServiceProvider>();
   private volatile int providersForLoadBalanceFlag = 0;
@@ -114,11 +120,15 @@ public class ZookeeperNameResolver extends NameResolver {
   private volatile URL zkRegistryURL;
   private volatile String subscribeId;//订阅id
   private volatile URL consumerUrl;
-  private volatile String serviceVersion, group;
+  private volatile String serviceVersion, invokeGroup;
   private volatile String consumerIP;// 当前客户端的IP
   private volatile ManagedChannel mc;
 
-  private volatile boolean useInitProvidersData;
+  private volatile boolean hasInitProvidersData;
+  private volatile boolean isConnectionZkSuccess = false;
+
+  /** 是否手工指定了服务端地址列表 */
+  private volatile boolean hasServiveServerList = false;
 
   private volatile ScheduledExecutorService findZkExecutor = Executors.newScheduledThreadPool(1);;
   private volatile ScheduledFuture<?> findZkFuture;
@@ -143,10 +153,22 @@ public class ZookeeperNameResolver extends NameResolver {
             "nameUri (%s) doesn't have an authority", nameUri);
     this.serviceName = Preconditions.checkNotNull(name, "host");
 
-    this.useInitProvidersData = false;
+    this.hasInitProvidersData = false;
 
     cannotFindZkMsg = "配置文件里同时配置了公共、私有注册注册中心，但是在两个注册中心都找不到服务["
             + serviceName + "]的注册信息，[" + FIND_DELAY + "]秒后再次查找服务端所在的注册中心！";
+
+    // 从配置文件中获取服务端列表
+    getProvidersFromConfigFile();
+
+    if (CollectionUtils.isNotEmpty(configFileProviders)) {
+      logger.info("服务[" + serviceName + "]使用配置文件中手动指定的服务器地址列表，忽略注册中心上的信息");
+
+      genProvidersCacheByConfigFile();
+
+      hasServiveServerList = true;
+      hasInitProvidersData = true;
+    }
   }
 
   public Map<String, ServiceProvider> getServiceProviderMap() {
@@ -167,6 +189,11 @@ public class ZookeeperNameResolver extends NameResolver {
   }
 
   public NameResolver build() {
+    if (hasServiveServerList) {
+      // 手工指定服务端地址列表后，忽略注册中心
+      return this;
+    }
+
     URL zkUrl;
     String key = RegisterCenterConf.getConsumerRcProKey();
     boolean hasTwoRc = GlobalConstants.PUBLIC_PRIVATE_REGISTRY_CENTER.equals(key);
@@ -210,6 +237,12 @@ public class ZookeeperNameResolver extends NameResolver {
     Consumer consumer = new Consumer(publicZkUrl);
 
     List<URL> urls = consumer.lookup(queryUrl);
+
+    if (!isConnectionZkSuccess) {
+      isConnectionZkSuccess = true;
+      logger.info("检测到已经连接上zookeeper");
+    }
+
     if (urls != null && !urls.isEmpty()) {
       zkUrl = publicZkUrl;
     } else {
@@ -257,12 +290,24 @@ public class ZookeeperNameResolver extends NameResolver {
   }
 
   public void registry() {
+    if (hasServiveServerList) {
+      // 手工指定服务端地址列表后，忽略注册中心
+
+      // 容错策略会用到subscribeId
+      subscribeId = UUID.randomUUID().toString();
+
+      // 容错策略会用到providersListener中的isProviderListEmpty
+      providersListener.setProviderListEmpty(false);
+
+      return;
+    }
+
     if (registry != null) {
       computeLoadBlanceStrategyMap();
 
       consumerIP = IpUtils.getIP4WithPriority();// 客户端的IP地址
       initServiceVersion();// 初始化客户端指定的服务的版本--必须放在注册之前
-      initGroup();//初始化客户端的GROUP,分组信息
+      initInvokeGroup();//初始化客户端的GROUP,分组信息
 
       providersListener.init(this, this.registry);
       routersListener.init(this, this.registry);
@@ -270,34 +315,48 @@ public class ZookeeperNameResolver extends NameResolver {
 
       Map<String, Object> params = new ConcurrentHashMap<String, Object>();
       params.put(GlobalConstants.Consumer.Key.INTERFACE, serviceName);
+      params.put(GlobalConstants.Consumer.Key.CONSUMER_GROUP_KEY, invokeGroup);
       subscribeId = registry.register(params, providersListener, routersListener, configuratorsListener);
       consumerUrl = URL.valueOf(subscribeId);
-      useInitProvidersData = true;
+
+      hasInitProvidersData = true;
+      isConnectionZkSuccess = true;
     }
   }
 
   /**
-   * 初始化客户端group的值
+   * 初始化客户端invoke.group的值
+   * @since 2019/11/25 modify by wlh 更新客户端分组key名称为invoke.group
    */
-  private void initGroup(){
+  private void initInvokeGroup(){
     Properties properties = SystemConfig.getProperties();
     //判断配置文件
     if (properties == null) {
-      group = "";
+      invokeGroup = "";
       return;
     }
 
     //判断配置文件中是否有KEY
-    String key = ConfigFileHelper.CONSUMER_KEY_PREFIX + GlobalConstants.CommonKey.GROUP;
-    if (!properties.containsKey(key)) {
-      group = "";
+    String key = ConfigFileHelper.CONSUMER_KEY_PREFIX + GlobalConstants.Consumer.Key.CONSUMER_GROUP_KEY;
+    String serviceGroupKey = key + "[" + this.serviceName + "]";
+    if (!properties.containsKey(key) && !properties.containsKey(serviceGroupKey)) {
+      invokeGroup = "";
       return;
     }
 
-    //把配置文件中KEY的值,赋值
-    group = properties.getProperty(key);
-    if (group == null) {
-      group = "";
+    /**
+     * 1. 优先根据服务名，查询invoke.group[服务名]信息
+     * 2. 如果步骤1中查询的数据为空，则查询invoke.group中的数据
+     */
+    String serviceGroup = properties.getProperty(serviceGroupKey);
+    if (StringUtils.isEmpty(serviceGroup)) {
+        //把配置文件中KEY的值,赋值
+        invokeGroup = properties.getProperty(key);
+        if (invokeGroup == null) {
+            invokeGroup = "";
+        }
+    } else {
+        invokeGroup = serviceGroup;
     }
   }
 
@@ -499,7 +558,7 @@ public class ZookeeperNameResolver extends NameResolver {
    */
   @Override
   public boolean isGroupValid(String host, int port) {
-    String consumerGroup = this.group;
+    String consumerGroup = this.invokeGroup;
     consumerGroup = StringUtils.trim(consumerGroup);
     if (StringUtils.isEmpty(consumerGroup)) {
       return true;
@@ -631,7 +690,7 @@ public class ZookeeperNameResolver extends NameResolver {
       boolean inBlackList = false;
 
       try {
-        if (!useInitProvidersData) {
+        if (!hasInitProvidersData) {
           getAllByName(serviceName);
         }
 
@@ -731,12 +790,42 @@ public class ZookeeperNameResolver extends NameResolver {
   // To be mocked out in tests
   @VisibleForTesting
   public void getAllByName(String serviceName) {
-    if (registry == null) {
+    if (hasServiveServerList) {
+      // 手工指定服务端地址列表后，忽略注册中心
+      // 但是由于容错策略的存在，这个缓存可能为空，这个时候需要重新生成一遍
+      if (serviceProviderMap.isEmpty()) {
+        genProvidersCacheByConfigFile();
+      }
       return;
-    } else {
+    }
+
+    if (!isConnectionZkSuccess) {
+      // 最多等待4秒连接zookeeper
+      int retryTimes = 400;
+      for (int i = 0; i < retryTimes; i++) {
+        if (i % 40 == 0) {
+          logger.info("wait for connecting to zookeeper...");
+        }
+        ThreadUtils.sleepQuietly(TimeUnit.MILLISECONDS, 10);
+        if (isConnectionZkSuccess) {
+          break;
+        }
+      }
+    }
+
+    if (!isConnectionZkSuccess) {
+      logger.error("客户端无法连接zookeeper,无法获取服务端[" + serviceName + "]列表");
+      return;
+    }
+
+    if (registry != null) {
       Map<String, String> params = new ConcurrentHashMap<String, String>();
       params.put(GlobalConstants.Consumer.Key.INTERFACE, serviceName);
       List<URL> urls = registry.lookup(params);
+
+      if (urls == null) {
+        urls = new ArrayList<>(0);
+      }
 
       Map<String, ServiceProvider> newProviders = getProvidersByUrls(urls);
 
@@ -815,7 +904,7 @@ public class ZookeeperNameResolver extends NameResolver {
 
       serviceProvider = new ServiceProvider();
       masterObj = ProvidersConfigUtils.getProperty(serviceName, url.getIp(), url.getPort(), GlobalConstants.CommonKey.MASTER);
-      groupObj = ProvidersConfigUtils.getProperty(serviceName, url.getIp(), url.getPort(), GlobalConstants.CommonKey.GROUP);
+      groupObj = ProvidersConfigUtils.getProperty(serviceName, url.getIp(), url.getPort(), GlobalConstants.Provider.Key.GROUP);
       serviceProvider = serviceProvider.fromURL(url, masterObj, groupObj);
 
       ProvidersConfigUtils.resetServiceProviderProperties(serviceProvider);
@@ -894,11 +983,11 @@ public class ZookeeperNameResolver extends NameResolver {
    * @since 2019/8/21 modify by sxp 原来的代码逻辑比较复杂，换一种容易理解的方法来实现
    */
   private Map<String, ServiceProvider> selectProvidersByGroup(Map<String, ServiceProvider> providers) {
-    if (StringUtils.isEmpty(group)) {
+    if (StringUtils.isEmpty(invokeGroup)) {
       return providers;
     }
 
-    String[] groupsArray = group.split(";");
+    String[] groupsArray = invokeGroup.split(";");
     int size = groupsArray.length;
     if (size == 0) {
       return providers;
@@ -1024,12 +1113,12 @@ public class ZookeeperNameResolver extends NameResolver {
     this.serviceVersion = serviceVersion;
   }
 
-  public String getGroup(){
-    return group;
+  public String getInvokeGroup(){
+    return invokeGroup;
   }
 
-  public void setGroup(String group){
-    this.group = group;
+  public void setInvokeGroup(String invokeGroup){
+    this.invokeGroup = invokeGroup;
   }
 
   @Override
@@ -1155,7 +1244,7 @@ public class ZookeeperNameResolver extends NameResolver {
     boolean inBlackList = false;
 
     try {
-      if (!useInitProvidersData) {
+      if (!hasInitProvidersData) {
         getAllByName(serviceName);
       }
 
@@ -1252,5 +1341,114 @@ public class ZookeeperNameResolver extends NameResolver {
     }
 
     listener.removeInvalidCacheSubchannels(removeHostPorts);
+  }
+
+  public boolean isConnectionZkSuccess() {
+    return isConnectionZkSuccess;
+  }
+
+  public void setConnectionZkSuccess(boolean connectionZkSuccess) {
+    isConnectionZkSuccess = connectionZkSuccess;
+  }
+
+  /**
+   * 从配置文件中获取服务端列表
+   */
+  private void getProvidersFromConfigFile() {
+    Properties properties = SystemConfig.getProperties();
+    if (properties == null) {
+      return;
+    }
+
+    final String SERVICE_SERVER_LIST = "service.server.list[%s]";
+    String key = String.format(SERVICE_SERVER_LIST, serviceName);
+    if (!properties.containsKey(key)) {
+      return;
+    }
+
+    String servers = properties.getProperty(key);
+    servers = StringUtils.trim(servers);
+
+    if (StringUtils.isEmpty(servers)) {
+      return;
+    }
+
+    String[] hostPortArray = servers.split(",");
+    if (hostPortArray == null || hostPortArray.length == 0) {
+      return;
+    }
+
+    ServiceProvider provider;
+    String host, portStr;
+    int port;
+    String[] array;
+    Map<String, String> parameters;
+
+    for (String hostPort : hostPortArray) {
+      hostPort = StringUtils.trim(hostPort);
+      if (StringUtils.isEmpty(hostPort)) {
+        continue;
+      }
+
+      array = hostPort.split(":");
+      if (array == null || array.length == 0) {
+        continue;
+      }
+
+      host = array[0];
+      portStr = array[1];
+
+      host = StringUtils.trim(host);
+      portStr = StringUtils.trim(portStr);
+
+      if (!IpUtils.isValidPort(portStr)) {
+        throw new RuntimeException("配置文件中的参数" + key + "，配置的参数值为" + servers
+                + "，其中端口" + portStr + "不是合法的端口，客户端启动失败！");
+      }
+
+      port = Integer.parseInt(portStr);
+
+      parameters = new HashMap<>(MapUtils.capacity(5));
+      parameters.put(RegistryConstants.CATEGORY_KEY, RegistryConstants.PROVIDERS_CATEGORY);
+      parameters.put(GlobalConstants.CommonKey.SIDE, RegistryConstants.PROVIDER_SIDE);
+      parameters.put(GlobalConstants.Provider.Key.INTERFACE, serviceName);
+      parameters.put(GlobalConstants.Provider.Key.APPLICATION, getConfig(GlobalConstants.COMMON_APPLICATION));
+      parameters.put(GlobalConstants.CommonKey.PROJECT, getConfig(GlobalConstants.COMMON_PROJECT));
+      URL url = new URL(RegistryConstants.GRPC_PROTOCOL, host, port, parameters);
+
+      provider = new ServiceProvider();
+      provider.setInterfaceName(url.getParameter(GlobalConstants.Provider.Key.INTERFACE));
+      provider.setApplication(url.getParameter(GlobalConstants.Provider.Key.APPLICATION));
+      provider.setSide(url.getParameter(GlobalConstants.Provider.Key.SIDE));
+      provider.setHost(host);
+      provider.setPort(port);
+      provider.setUrl(url);
+
+      configFileProviders.add(provider);
+    }
+  }
+
+  /**
+   * 根据配置文件中的服务端列表初始化服务端列表缓存
+   */
+  private void genProvidersCacheByConfigFile() {
+    int size = configFileProviders.size();
+    if (size == 0) {
+      return;
+    }
+
+    allProviders.clear();
+    serviceProviderMap.clear();
+
+    String providerId;
+    for (ServiceProvider provider : configFileProviders) {
+      providerId = provider.getHost() + ":" + provider.getPort();
+      allProviders.put(providerId, provider);
+      serviceProviderMap.put(providerId, provider);
+    }
+
+    // 服务列表变化后，重置providersForLoadBalance
+    providersForLoadBalance = new ConcurrentHashMap<>(MapUtils.capacity(size));
+    providersForLoadBalanceFlag = 0;
   }
 }

@@ -93,4 +93,8 @@ public class RegistryConstants {
    */
   public static final String ANY_VALUE = "*";
 
+  public static final String CLIENT_REGISTRY_THREAD_NAME = "client-registry-handler";
+
+  public static final String SERVER_REGISTRY_THREAD_NAME = "server-registry-handler";
+
 }

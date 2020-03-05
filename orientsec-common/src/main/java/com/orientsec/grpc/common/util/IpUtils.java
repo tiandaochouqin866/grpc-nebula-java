@@ -205,10 +205,33 @@ public final class IpUtils {
    * @since V1.0 Apr 11, 2017
    */
   public static boolean isValidIPv4(String ip) {
-    if (ip == null) {
+    if (StringUtils.isEmpty(ip)) {
       return false;
     }
     return IP_PATTERN.matcher(ip).matches();
+  }
+
+  /**
+   * 端口合法性校验
+   *
+   * @param port
+   * @return
+   * @author wlh
+   * @since 2019/12/06
+   */
+  public static boolean isValidPort(String port){
+    if (StringUtils.isEmpty(port)) {
+      return false;
+    }
+
+    if (MathUtils.isInteger(port)) {
+      int portInt = Integer.parseInt(port);
+      if (portInt >= 0 && portInt <= 65535) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**

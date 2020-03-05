@@ -174,16 +174,15 @@ public class ConsumerConfigUtils {
    * @author djq
    * @since V1.0 2017-3-24
    */
-  private void saveConsumersConfig( Map<String, Object> consumersParams) {
+  private void saveConsumersConfig(Map<String, Object> consumersParams) {
     List<ConfigFile> allConf = ConfigFileHelper.getConsumer();
     Object value;
     String confKey;
     String[] keysFromParam = {GlobalConstants.Consumer.Key.INTERFACE,
-            GlobalConstants.Consumer.Key.METHODS,
-            GlobalConstants.CONSUMER_REQUEST_PORT};
+            GlobalConstants.Consumer.Key.CONSUMER_GROUP_KEY};
     String[] keysOfAuto = {GlobalConstants.CommonKey.TIMESTAMP, GlobalConstants.CommonKey.PID};
 
-    confItem = new LinkedHashMap<String, Object>(ConsumerConstants.CONFIG_CAPACITY);
+    confItem = new LinkedHashMap<>(ConsumerConstants.CONFIG_CAPACITY);
 
     for (String key : keysOfAuto) {
       value = (consumerConfig.containsKey(key)) ? (consumerConfig.get(key)) : (null);
@@ -197,7 +196,7 @@ public class ConsumerConfigUtils {
     }
 
     for (String key : keysFromParam) {
-      value = (consumersParams.containsKey(key)) ? (consumersParams.get(key)) : ("0");
+      value = (consumersParams.containsKey(key)) ? (consumersParams.get(key)) : (null);
       confItem.put(key, value);
     }
   }
@@ -210,7 +209,12 @@ public class ConsumerConfigUtils {
    */
   public static Map<String, Object> mergeConsumerConfig(Map<String, Object> consumersParams) {
     ConsumerConfigUtils consumerConfigUtils = new ConsumerConfigUtils();
-    consumerConfigUtils.checkAndSaveProperties();
+
+    BusinessResult result = consumerConfigUtils.checkAndSaveProperties();
+    if (!result.isSuccess()) {
+      throw new BusinessException("客户端注册失败:" + result.getMessage());
+    }
+
     consumerConfigUtils.saveConsumersConfig(consumersParams);
     return consumerConfigUtils.getConfItem();
   }

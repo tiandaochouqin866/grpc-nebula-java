@@ -47,7 +47,7 @@ import java.util.Set;
  */
 public class ProviderGroupHandler {
   private static final Logger logger = LoggerFactory.getLogger(ProviderGroupHandler.class);
-  private static final String KEY = GlobalConstants.CommonKey.GROUP;
+  private static final String KEY = GlobalConstants.Provider.Key.GROUP;
   private ZookeeperNameResolver zkNameResolver;
 
   /**

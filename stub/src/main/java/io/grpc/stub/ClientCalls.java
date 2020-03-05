@@ -68,18 +68,19 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * that the runtime can vary behavior without requiring regeneration of the stub.
  */
 public final class ClientCalls {
-
   private static final Logger logger = LoggerFactory.getLogger(ClientCalls.class);
+
+  private static Properties properties = SystemConfig.getProperties();
 
   /**
    * 失败重试次数
    */
   private static int failureRetryNum = initFailureRetryNum();
 
+
   private static int initFailureRetryNum() {
     String key = GlobalConstants.Consumer.Key.CONSUME_RDEFAULT_RETRIES;
     int defaultValue = 0;
-    Properties properties = SystemConfig.getProperties();
 
     int num = PropertiesUtils.getValidIntegerValue(properties, key, defaultValue);
     if (num < 0) {
@@ -164,32 +165,28 @@ public final class ClientCalls {
     ThreadlessExecutor executor = new ThreadlessExecutor();
     ClientCall<ReqT, RespT> call = channel.newCall(method, callOptions.withExecutor(executor));
 
-    boolean success = true;
-
     try {
       ListenableFuture<RespT> responseFuture = futureUnaryCall(call, req);
       judgeResponseFuture(responseFuture, executor);
-      return getUnchecked(responseFuture);
+      RespT result = getUnchecked(responseFuture);
+      //----begin----计算请求次数、请求出错次数----
+      FailoverUtils.recordRequest(channel, true, call, null);
+      //----end------计算请求次数、请求出错次数----
+      return result;
     } catch (RuntimeException e) {
+      FailoverUtils.recordRequest(channel, false, call, e);
       RespT respT = failureRetry(channel, method, callOptions, req, call, executor);
       if (respT != null) {
         return respT;
       }
-
-      success = false;
       throw cancelThrow(call, e);
     } catch (Error e) {
+      FailoverUtils.recordRequest(channel, false, call, null);
       RespT respT = failureRetry(channel, method, callOptions, req, call, executor);
       if (respT != null) {
         return respT;
       }
-
-      success = false;
       throw cancelThrow(call, e);
-    } finally {
-      //----begin----计算请求次数、请求出错次数----
-      FailoverUtils.recordRequest(channel, success, call);
-      //----end------计算请求次数、请求出错次数----
     }
   }
 
@@ -265,24 +262,51 @@ public final class ClientCalls {
           ReqT req,
           ClientCall<ReqT, RespT> call,
           ThreadlessExecutor executor) {
-    if (failureRetryNum == 0) {
+
+    int retryNum, methodRetryNum, serviceRetryNum;
+
+    /**
+     * 1. 从配置文件中获取指定Method的重试次数
+     * 2. 如果Method没有配置，则取服务的配置次数
+     * 3. 如果服务没有配置，则取默认次数
+     */
+    String interfaceName = GrpcUtils.getInterfaceNameNoneException(method.getFullMethodName());
+    String methodName = GrpcUtils.getSimpleMethodName(method.getFullMethodName());
+    String serviceRetryConfKey = GlobalConstants.Consumer.Key.CONSUME_RDEFAULT_RETRIES + "[" + interfaceName + "]";
+    String methodRetryConfKey = GlobalConstants.Consumer.Key.CONSUME_RDEFAULT_RETRIES + "[" + interfaceName + "." + methodName + "]";
+
+    methodRetryNum = PropertiesUtils.getValidIntegerValue(properties, methodRetryConfKey, 0);
+    serviceRetryNum = PropertiesUtils.getValidIntegerValue(properties, serviceRetryConfKey, 0);
+
+    if (methodRetryNum > 0) {
+      retryNum = methodRetryNum;
+    } else if (serviceRetryNum > 0) {
+      retryNum = serviceRetryNum;
+    } else {
+      retryNum = failureRetryNum;
+    }
+
+    if (retryNum == 0) {
       return null;
     }
 
     ListenableFuture<RespT> responseFuture;
+    RespT result;
 
-    for (int i = 0; i < failureRetryNum; i ++) {
+    for (int i = 0; i < retryNum; i++) {
       try {
         logger.info("失败重试第" + (i + 1) + "次...");
+
         reelectServer(channel, method.getFullMethodName());
         call = channel.newCall(method, callOptions.withExecutor(executor));
         responseFuture = futureUnaryCall(call, req);
         judgeResponseFuture(responseFuture, executor);
-        return getUnchecked(responseFuture);
+        result = getUnchecked(responseFuture);
+
+        FailoverUtils.recordRequest(channel, true, call, null);
+        return result;
       } catch (Exception e) {
-        if (i == failureRetryNum - 1) {
-          break;
-        }
+        FailoverUtils.recordRequest(channel, false, call, e);
       }
     }
 
@@ -319,14 +343,18 @@ public final class ClientCalls {
     BlockingResponseStream<RespT> result = new BlockingResponseStream<RespT>(call, executor);
 
     boolean success = true;
+    Exception e = null;
 
     try {
       asyncUnaryRequestCall(call, req, result.listener(), true);
     } catch (Throwable t) {
+      if (t instanceof Exception) {
+        e = (Exception) t;
+      }
       success = false;
     } finally {
       //----begin----计算请求次数、请求出错次数----
-      FailoverUtils.recordRequest(channel, success, call);
+      FailoverUtils.recordRequest(channel, success, call, e);
       //----end------计算请求次数、请求出错次数----
     }
 
@@ -460,7 +488,7 @@ public final class ClientCalls {
    * <p>
    * 目前的方法是将参数列表中的各参数值转化为String拼接起来。 <br>
    * 对于参数列表也有一定的限制，不支持参数在嵌套的层次中，即必须在第一层。 <br>
-   * 如果客户端为未配置参数列表，或者参数值列表不正确，则取第一个参数的参数值返回。  <br>
+   * 如果客户端为未配置参数列表，或者参数值列表不正确，则取按照参数名升序获取第一个非嵌套类型参数的参数值返回。  <br>
    * </p>
    *
    * @author sxp

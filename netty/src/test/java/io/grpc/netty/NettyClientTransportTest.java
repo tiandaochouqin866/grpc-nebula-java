@@ -70,11 +70,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -801,6 +797,9 @@ public class NettyClientTransportTest {
       }
       return transports.size();
     }
+
+    @Override
+    public Collection<ServerTransport> getTransports() { return null; }
   }
 
   private static final class StringMarshaller implements Marshaller<String> {

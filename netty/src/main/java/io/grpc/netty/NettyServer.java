@@ -24,17 +24,14 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 import com.orientsec.grpc.common.resource.SystemConfig;
+import com.orientsec.grpc.common.util.StringUtils;
 import io.grpc.InternalChannelz;
 import io.grpc.InternalChannelz.SocketStats;
 import io.grpc.InternalInstrumented;
 import io.grpc.InternalLogId;
 import io.grpc.InternalWithLogId;
 import io.grpc.ServerStreamTracer;
-import io.grpc.internal.InternalServer;
-import io.grpc.internal.ServerListener;
-import io.grpc.internal.ServerTransportListener;
-import io.grpc.internal.SharedResourceHolder;
-import io.grpc.internal.TransportTracer;
+import io.grpc.internal.*;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -49,16 +46,17 @@ import io.netty.util.AbstractReferenceCounted;
 import io.netty.util.ReferenceCounted;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static io.grpc.netty.NettyServerBuilder.MAX_CONNECTION_AGE_NANOS_DISABLED;
@@ -69,7 +67,7 @@ import static io.netty.channel.ChannelOption.SO_KEEPALIVE;
  * Netty-based server implementation.
  */
 class NettyServer implements InternalServer, InternalWithLogId {
-  private static final Logger log = Logger.getLogger(InternalServer.class.getName());
+  private static final Logger LOGGER = LoggerFactory.getLogger(NettyServer.class);
 
   private final InternalLogId logId = InternalLogId.allocate(getClass().getName());
   private final SocketAddress address;
@@ -185,12 +183,16 @@ class NettyServer implements InternalServer, InternalWithLogId {
       public void initChannel(Channel ch) throws Exception {
         //----begin----连接数控制----
 
+        String remoteAddr = ch.remoteAddress().toString();
         int maxConnetions = SystemConfig.getProviderMaxConnetions(); // 最大连接数
 
+        String ipAddr = getIpAddr(remoteAddr);
         if (maxConnetions > 0) {
-          int currentConnetions = listener.getServerTransportCount();// 当前连接数
+          // int currentConnetions = listener.getServerTransportCount();// 当前连接数
+          int currentConnetions = getTransportCountByIp(listener.getTransports(), ipAddr);
           if (currentConnetions >= maxConnetions) {
             synchronized (NettyServer.this) {
+              LOGGER.warn("当前客户端IP:{} 连接数超配置上限，上限{}，当前连接数{}", ipAddr, maxConnetions, currentConnetions);
               // 关闭channel，使客户端能立即捕捉到异常
               ch.close();
               return;
@@ -299,7 +301,7 @@ class NettyServer implements InternalServer, InternalWithLogId {
       @Override
       public void operationComplete(ChannelFuture future) throws Exception {
         if (!future.isSuccess()) {
-          log.log(Level.WARNING, "Error shutting down server", future.cause());
+          LOGGER.warn("Error shutting down server", future.cause());
         }
         for (InternalInstrumented<SocketStats> listenSocket : listenSockets) {
           channelz.removeListenSocket(listenSocket);
@@ -320,6 +322,47 @@ class NettyServer implements InternalServer, InternalWithLogId {
     if (workerGroup == null) {
       workerGroup = SharedResourceHolder.get(Utils.DEFAULT_WORKER_EVENT_LOOP_GROUP);
     }
+  }
+
+  /**
+   * 根据IP获取对应Transport数量
+   *
+   * @param transports
+   * @param address
+   * @return
+   * @author wlh
+   * @since 2019/12/03
+   */
+  private int getTransportCountByIp(Collection<ServerTransport> transports, String address){
+    synchronized (NettyServer.this){
+      if (transports == null || transports.size() == 0) {
+        return 0;
+      }
+      int currentConnections = 0;
+      for (ServerTransport transport : transports) {
+        NettyServerTransport nsTransport = (NettyServerTransport) transport;
+        if (address.equals(getIpAddr(nsTransport.channel().remoteAddress().toString()))) {
+          currentConnections++;
+        }
+      }
+      return currentConnections;
+    }
+  }
+
+  /**
+   * 从remoteAddr中获取IP地址
+   *
+   * @param remoteAddr 格式：“/192.168.1.1:5001”
+   * @return
+   * @author wlh
+   * @since 2019/12/03
+   */
+  private String getIpAddr(String remoteAddr){
+    if (StringUtils.isEmpty(remoteAddr)) {
+      return null;
+    }
+    String[] split = remoteAddr.split(":");
+    return split[0].substring(1);
   }
 
   @Override

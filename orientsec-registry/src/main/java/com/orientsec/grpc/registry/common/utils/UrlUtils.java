@@ -489,7 +489,7 @@ public class UrlUtils {
       return null;
     }
 
-    URL url = getZkUrlByAddress(addresses, key);
+    URL url = getZkUrlByAddress(addresses, key, null, null);
 
     return url;
   }
@@ -500,13 +500,23 @@ public class UrlUtils {
    *
    * @param addresses 注册中心服务器地址列表
    * @param id        给该注册中心地址设置一个唯一标识
+   * @since 2019/12/03 modify by wlh 增加封装配置的ip和port数据到map
    */
-  public static URL getZkUrlByAddress(String addresses, String id) {
+  public static URL getZkUrlByAddress(String addresses, String id, String serviceIp, Integer servicePort) {
     if (StringUtils.isEmpty(addresses)) {
       return null;
     }
 
-    Map<String, String> parameters = new HashMap<>(MapUtils.capacity(2));
+    Map<String, String> parameters;
+    parameters = new HashMap<>(MapUtils.capacity(4));
+    if (StringUtils.isNotEmpty(serviceIp)) {
+      parameters.put(GlobalConstants.CommonKey.SERVICE_IP, serviceIp);
+    }
+
+    if (servicePort != null) {
+      parameters.put(GlobalConstants.CommonKey.SERVICE_PORT, String.valueOf(servicePort));
+    }
+
     if (StringUtils.isNotEmpty(id)) {
       parameters.put("id", id);
     }
@@ -543,6 +553,7 @@ public class UrlUtils {
    *
    * @author yulei
    * @since 2019/8/27
+   * @since 2019/11/29 modify by wlh 增加注册中心serviceIP和servicePort属性到url的Parameter中
    */
   public static List<URL> getAllProviderRegisterURLs() {
     Properties properties = SystemConfig.getProperties();
@@ -563,7 +574,10 @@ public class UrlUtils {
       if (StringUtils.isEmpty(addresses)) {
         continue;
       }
-      url = getZkUrlByAddress(addresses, addrKey);
+
+      RegistryCenter registryCenter = entry.getValue();
+      url = getZkUrlByAddress(addresses, addrKey, registryCenter.getServiceIp(), registryCenter.getServicePort());
+
       if (url != null) {
         urlList.add(url);
       }

@@ -16,8 +16,6 @@
 
 package io.grpc.internal;
 
-import static com.google.common.base.Preconditions.checkArgument;
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
@@ -29,6 +27,7 @@ import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import io.grpc.CallOptions;
 import io.grpc.ClientStreamTracer;
+import io.grpc.EquivalentAddressGroup;
 import io.grpc.InternalChannelz.SocketStats;
 import io.grpc.InternalLogId;
 import io.grpc.InternalMetadata;
@@ -41,6 +40,8 @@ import io.grpc.Status;
 import io.grpc.internal.ClientStreamListener.RpcProgress;
 import io.grpc.internal.SharedResourceHolder.Resource;
 import io.grpc.internal.StreamListener.MessageProducer;
+
+import javax.annotation.Nullable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
@@ -60,7 +61,8 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.annotation.Nullable;
+
+import static com.google.common.base.Preconditions.checkArgument;
 
 /**
  * Common utilities for GRPC.
@@ -772,6 +774,29 @@ public final class GrpcUtil {
       }
     }
     return false;
+  }
+
+  /**
+   * 从ClientTransport获取服务端地址
+   *
+   * @author sxp
+   * @since 2019/12/19
+   */
+  public static EquivalentAddressGroup getAddressGroupFromTransport(ClientTransport transport) {
+    EquivalentAddressGroup addressGroup = null;
+
+    if (transport instanceof InternalSubchannel.CallTracingTransport) {
+      InternalSubchannel.CallTracingTransport callTransport;
+      callTransport = (InternalSubchannel.CallTracingTransport) transport;
+      ConnectionClientTransport connTransport = callTransport.delegate();
+      SocketAddress socketAddress = connTransport.getAddress();
+      if (socketAddress instanceof InetSocketAddress) {
+        InetSocketAddress inetSocketAddress = (InetSocketAddress) socketAddress;
+        addressGroup = new EquivalentAddressGroup(inetSocketAddress);
+      }
+    }
+
+    return addressGroup;
   }
 
   private GrpcUtil() {}

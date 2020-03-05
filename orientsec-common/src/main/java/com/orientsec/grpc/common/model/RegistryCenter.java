@@ -31,6 +31,12 @@ public class RegistryCenter {
   private volatile String rootPath;
   private volatile String aclUserPwd;
 
+  /** 服务注册ip */
+  private volatile String serviceIp;
+
+  /** 服务注册端口 */
+  private volatile Integer servicePort;
+
   public String getHost() {
     return host;
   }
@@ -53,5 +59,21 @@ public class RegistryCenter {
 
   public void setAclUserPwd(String aclUserPwd) {
     this.aclUserPwd = aclUserPwd;
+  }
+
+  public String getServiceIp() {
+      return serviceIp;
+  }
+
+  public void setServiceIp(String serviceIp) {
+      this.serviceIp = serviceIp;
+  }
+
+  public Integer getServicePort() {
+      return servicePort;
+  }
+
+  public void setServicePort(Integer servicePort) {
+      this.servicePort = servicePort;
   }
 }

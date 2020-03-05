@@ -38,6 +38,7 @@ import org.junit.runners.JUnit4;
 
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -89,6 +90,9 @@ public class NettyServerTest {
       public int getServerTransportCount() {
         return 0;
       }
+
+      @Override
+      public Collection<ServerTransport> getTransports() {return null;}
     });
 
     // Check that we got an actual port.
@@ -178,6 +182,11 @@ public class NettyServerTest {
       public int getServerTransportCount() {
         return 0;
       }
+
+      @Override
+      public Collection<ServerTransport> getTransports() {
+        return null;
+      }
     });
 
     Socket socket = new Socket();
@@ -227,6 +236,11 @@ public class NettyServerTest {
       @Override
       public int getServerTransportCount() {
         return 0;
+      }
+
+      @Override
+      public Collection<ServerTransport> getTransports() {
+        return null;
       }
     });
     assertThat(ns.getPort()).isGreaterThan(0);

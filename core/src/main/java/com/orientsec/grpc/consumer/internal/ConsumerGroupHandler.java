@@ -39,7 +39,7 @@ public class ConsumerGroupHandler {
   private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupHandler.class);
 
   // 客户端GROUP
-  private static final String KEY = GlobalConstants.Consumer.Key.GROUP;
+  private static final String KEY = GlobalConstants.Consumer.Key.CONSUMER_GROUP_KEY;
 
   private ZookeeperNameResolver zkNameResolver;
 
@@ -61,7 +61,7 @@ public class ConsumerGroupHandler {
     }
 
     // 客户端指定的GROUP
-    String currentGroup = zkNameResolver.getGroup();
+    String currentGroup = zkNameResolver.getInvokeGroup();
     currentGroup = (currentGroup == null ? "" : currentGroup);
 
     boolean needUpdate = false;
@@ -103,7 +103,7 @@ public class ConsumerGroupHandler {
       }
 
       if (!currentGroup.equals(newGroup)) {
-        zkNameResolver.setGroup(newGroup);
+        zkNameResolver.setInvokeGroup(newGroup);
         String serviceName = zkNameResolver.getServiceName();
 
         // 重新选择服务提供者

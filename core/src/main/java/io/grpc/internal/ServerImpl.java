@@ -68,6 +68,7 @@ import java.util.logging.Logger;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
+import static com.orientsec.grpc.common.constant.RegistryConstants.SERVER_REGISTRY_THREAD_NAME;
 import static io.grpc.Contexts.statusFromCancelled;
 import static io.grpc.Status.DEADLINE_EXCEEDED;
 import static io.grpc.internal.GrpcUtil.MESSAGE_ENCODING_KEY;
@@ -181,15 +182,20 @@ public final class ServerImpl extends io.grpc.Server implements InternalInstrume
       started = true;
 
       //----begin----服务启动时，自动向zk注册Provider信息----
-
-      List<Map<String,Object>> params = createServerParams();
-      providerRegistry.register(params);
-
+      new Thread(registerRunnable, SERVER_REGISTRY_THREAD_NAME).start();
       //----end----服务启动时，自动向zk注册Provider信息----
 
       return this;
     }
   }
+
+  private Runnable registerRunnable = new Runnable() {
+    @Override
+    public void run() {
+      List<Map<String,Object>> params = createServerParams();
+      providerRegistry.register(params);
+    }
+  };
 
   /**
    * 将服务注册与注销相关的参数封装成一个对象
@@ -441,6 +447,13 @@ public final class ServerImpl extends io.grpc.Server implements InternalInstrume
           return 0;
         }
         return transports.size();
+      }
+    }
+
+    @Override
+    public Collection<ServerTransport> getTransports(){
+      synchronized (lock) {
+        return transports;
       }
     }
   }

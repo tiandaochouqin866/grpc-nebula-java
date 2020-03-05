@@ -66,12 +66,37 @@ public class HelloWorldClient {
     HelloReply response;
     try {
       // blockingStub = GreeterGrpc.newBlockingStub(channel).withDeadlineAfter(10, TimeUnit.SECONDS);
-      if (id % 2 == 0) {
-        response = blockingStub.sayHello(request);
-      } else {
-        response = blockingStub.echo(request);
-      }
 
+      //if (id % 2 == 0) {
+      //  response = blockingStub.sayHello(request);
+      //} else {
+      //  response = blockingStub.echo(request);
+      //}
+
+      response = blockingStub.sayHello(request);
+    } catch (StatusRuntimeException e) {
+      if (e.getStatus() != null && Status.Code.DEADLINE_EXCEEDED.equals(e.getStatus().getCode())) {
+        logger.error("服务调用超时", e);
+      } else {
+        logger.error("RPC failed:", e);
+      }
+      return;
+    } catch (Exception e) {
+      logger.error("RPC failed:", e);
+      return;
+    }
+
+    long cost = System.currentTimeMillis() - begin;
+    logger.info("耗时[" + cost + "]ms, Greeting response: " + response.getMessage());
+  }
+
+  public void echo(int id, String name) {
+    long begin = System.currentTimeMillis();
+
+    HelloRequest request = HelloRequest.newBuilder().setId(id).setName(name).build();
+    HelloReply response;
+    try {
+      response = blockingStub.echo(request);
     } catch (StatusRuntimeException e) {
       if (e.getStatus() != null && Status.Code.DEADLINE_EXCEEDED.equals(e.getStatus().getCode())) {
         logger.error("服务调用超时", e);
@@ -97,6 +122,7 @@ public class HelloWorldClient {
       long interval = getClientSleepInterval();// 单位：毫秒
       int id;
       long loopNum = 30 * 86400L * 1000;
+      boolean isEcho = false;
 
       if (interval > 0) {
         loopNum = 30 * 86400L * 1000 / interval;// 运行30天
@@ -106,6 +132,10 @@ public class HelloWorldClient {
         logger.info("Test high concurrency client ");
         interval = 10L;
         loopNum = 3600L * 1000 / interval;// 运行1小时
+      }
+
+      if (args.length > 0 && args[0].contains("echo-method")) {
+        isEcho = true;
       }
 
       logger.info("Sleep interval is [" + interval + "] ms.");
@@ -120,7 +150,11 @@ public class HelloWorldClient {
         }
 
         id = random.nextInt(size);
-        client.greet(id, names.get(id));
+        if (isEcho) {
+          client.echo(id, names.get(id));
+        } else {
+          client.greet(id, names.get(id));
+        }
 
         TimeUnit.MILLISECONDS.sleep(interval);
 

@@ -16,6 +16,8 @@
 
 package io.grpc.internal;
 
+import java.util.Collection;
+
 /**
  * A listener to a server for transport creation events. The listener need not be thread-safe, so
  * notifications must be properly synchronized externally.
@@ -44,4 +46,13 @@ public interface ServerListener {
    * @since 2019/1/7
    */
   int getServerTransportCount() ;
+
+  /**
+   * 获取所有ServerTransport
+   *
+   * @return
+   * @author wlh
+   * @since 2019/12/03
+   */
+  Collection<ServerTransport> getTransports();
 }

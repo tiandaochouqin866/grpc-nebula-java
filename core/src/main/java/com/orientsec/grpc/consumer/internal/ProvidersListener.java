@@ -46,6 +46,11 @@ public class ProvidersListener extends AbstractListener implements ConsumerListe
 
   @Override
   public void notify(List<URL> urls) {
+    if (initData && !zookeeperNameResolver.isConnectionZkSuccess()) {
+      zookeeperNameResolver.setConnectionZkSuccess(true);
+      logger.info("检测到已经连接上zookeeper");
+    }
+
     Map<String, ServiceProvider> newProviders = zookeeperNameResolver.getProvidersByUrls(urls);
     int newSize = newProviders.size();
 
@@ -76,10 +81,8 @@ public class ProvidersListener extends AbstractListener implements ConsumerListe
       zookeeperNameResolver.setProvidersForLoadBalanceFlag(0);
     }
 
-    //第一次调用时(订阅时)不刷新providers缓存
-    if (!initData) {
-      zookeeperNameResolver.resolveServerInfoWithLock();
-    }
+    // 为了支持zk不可用时客户端也能正常启动，这个地方判断initData的限制去掉
+    zookeeperNameResolver.resolveServerInfoWithLock();
 
     initData = false;
   }
@@ -124,5 +127,9 @@ public class ProvidersListener extends AbstractListener implements ConsumerListe
 
   public boolean isProviderListEmpty() {
     return isProviderListEmpty;
+  }
+
+  public void setProviderListEmpty(boolean providerListEmpty) {
+    isProviderListEmpty = providerListEmpty;
   }
 }

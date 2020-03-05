@@ -125,6 +125,12 @@ public class GlobalConstants {
    */
   public static final String SERVICE_EXTRA_RC_ACLPWD_SUFFIX = ".acl.password";
 
+  /** 服务端额外使用的注册中心服务注册IP地址后缀 */
+  public static final String SERVICE_EXTRA_RC_SERVICEIP_SUFFIX = ".service.ip";
+
+  /** 服务端额外使用的注册中心服务注册端口地址后缀 */
+  public static final String SERVICE_EXTRA_RC_SERVICEPORT_SUFFIX = ".service.port";
+
   /**
    * 注册中心默认注册根路径
    */
@@ -154,6 +160,9 @@ public class GlobalConstants {
    * 访问控制列表密码
    */
   public static final String ACL_PASSWORD = "zookeeper.acl.password";
+
+  /** 错误端口地址 */
+  public static final int ERROR_PORT = -9999;
 
   /**
    * 配置文件中的应用名称的key值
@@ -363,7 +372,11 @@ public class GlobalConstants {
      */
     public static final String MASTER = "master";
 
-    public static final String GROUP = "group";
+    /** 配置服务注册时使用的IP的KEY */
+    public static final String SERVICE_IP = "service.ip";
+
+    /** 配置服务注册时使用的端口的KEY */
+    public static final String SERVICE_PORT = "service.port";
 
     /**
      * 是否启用熔断机制
@@ -433,6 +446,17 @@ public class GlobalConstants {
        */
       public static final String ACCESS_PROTECTED = "access.protected";
 
+      /**
+       * 服务端所属的分组
+       */
+      public static final String GROUP = "group";
+
+
+      /** 服务的真实IP的KEY */
+      public static final String REAL_IP = "real.ip";
+
+      /** 服务的真实的端口号的KEY */
+      public static final String REAL_PORT = "real.port";
 
     }
   }
@@ -460,6 +484,9 @@ public class GlobalConstants {
        */
       public static final String LOADBALANCE_MODE = "consumer.loadbalance.mode";
 
+      /** 负载均衡connection模式切换连接时间 */
+      public static final String LOADBALANCE_CONNECTION_SWITCHTIME = "consumer.loadbalance.connection.switchTime";
+
       /**
        * 负载均衡模式的key值 ---- 客户端监听注册中心数据变化使用
        */
@@ -473,6 +500,9 @@ public class GlobalConstants {
        * 连续多少次请求出错，自动切换到提供相同服务的新服务器
        */
       public static final String SWITCHOVER_THRESHOLD = "consumer.switchover.threshold";
+
+      /** 服务恢复时间 */
+      public static final String RECOVERY_MILLISECONDS = "consumer.service.recoveryMilliseconds";
 
       /**
        * 服务提供者不可用时的惩罚时间
@@ -508,6 +538,9 @@ public class GlobalConstants {
        * 配置文件中的远程服务失败重试次数
        */
       public static final String CONSUME_RDEFAULT_RETRIES = "consumer.default.retries";
+
+      /** 客户端配置的GROUP的key值 */
+      public static final String CONSUMER_GROUP_KEY = "invoke.group";
     }
   }
 

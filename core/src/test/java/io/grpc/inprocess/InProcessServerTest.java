@@ -27,6 +27,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -77,6 +78,9 @@ public class InProcessServerTest {
       public int getServerTransportCount() {
         return 0;
       }
+
+      @Override
+      public Collection<ServerTransport> getTransports() { return null; }
     });
     Truth.assertThat(pool.count).isEqualTo(1);
     s.shutdown();

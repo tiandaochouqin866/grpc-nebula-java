@@ -1,4 +1,4 @@
-rootProject.name = "orientsec-grpc-java"
+rootProject.name = "grpc-nebula-java"
 include ":orientsec-grpc-core"
 include ":orientsec-grpc-context"
 include ":orientsec-grpc-stub"

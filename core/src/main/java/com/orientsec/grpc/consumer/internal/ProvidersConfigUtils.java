@@ -214,7 +214,7 @@ public class ProvidersConfigUtils {
       serviceProvider.setMaster(master);
     }
 
-    value = getProperty(serviceName, ip, port, GlobalConstants.CommonKey.GROUP);
+    value = getProperty(serviceName, ip, port, GlobalConstants.Provider.Key.GROUP);
     if (value != null) {
       String group = (String) value;
       serviceProvider.setGroup(group);

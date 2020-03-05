@@ -104,6 +104,7 @@ public final class ConfigFileHelper {
     // ConfigFile pid = new ConfigFile("pid", DataType.LONG, true, ConfigFile.AUTO_VALUE);
 
     // 可选
+
     ConfigFile module = new ConfigFile("module", DataType.STRING, false, null);
     ConfigFile group = new ConfigFile("group", DataType.STRING, false, null);
     ConfigFile timeout = new ConfigFile("default.timeout", DataType.INTEGER, false, "1000");
@@ -126,9 +127,7 @@ public final class ConfigFileHelper {
     ConfigFile dubbo = new ConfigFile("dubbo", DataType.STRING, false, null);
 
     ConfigFile accessProtected = new ConfigFile("access.protected", DataType.BOOLEAN, false, "false");
-    //区别主备服务器
     ConfigFile master = new ConfigFile("master", DataType.BOOLEAN, false, "true");
-    ConfigFile innerServiceNames = new ConfigFile("inner.service.names", DataType.STRING, false, "true");
 
     provider.add(application);
     provider.add(project);
@@ -164,7 +163,6 @@ public final class ConfigFileHelper {
     provider.add(dubbo);
     provider.add(accessProtected);
     provider.add(master);
-    provider.add(innerServiceNames);
   }
 
   public static List<ConfigFile> getProvider() {
@@ -180,7 +178,7 @@ public final class ConfigFileHelper {
     // 必填项
     ConfigFile application = new ConfigFile("application", DataType.STRING, true, null);
     ConfigFile project = new ConfigFile("project", DataType.STRING, true, null);
-    ConfigFile owner = new ConfigFile("owner", DataType.STRING, false, null);
+    ConfigFile owner = new ConfigFile("owner", DataType.STRING, true, null);
     ConfigFile grpc = new ConfigFile("grpc", DataType.STRING, true, OrientsecGrpcVersion.VERSION);
 
     // 必填项-->固定参数
@@ -208,7 +206,7 @@ public final class ConfigFileHelper {
     ConfigFile requests = new ConfigFile("default.requests", DataType.STRING, false, "0");
     ConfigFile connections = new ConfigFile("default.connections", DataType.STRING, false, "0");
     ConfigFile cluster = new ConfigFile("default.cluster", DataType.STRING, false, "failover");
-    ConfigFile group = new ConfigFile("group", DataType.STRING, false, null);
+    ConfigFile invokeGroup = new ConfigFile("invoke.group", DataType.STRING, false, null);
 
 
     consumer.add(application);
@@ -231,7 +229,7 @@ public final class ConfigFileHelper {
     consumer.add(requests);
     consumer.add(connections);
     consumer.add(cluster);
-    consumer.add(group);
+    consumer.add(invokeGroup);
   }
 
   public static List<ConfigFile> getConsumer() {

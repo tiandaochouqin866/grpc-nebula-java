@@ -18,6 +18,8 @@
 package com.orientsec.grpc.common.resource;
 
 import com.orientsec.grpc.common.model.RegistryCenter;
+import com.orientsec.grpc.common.util.MathUtils;
+import com.orientsec.grpc.common.util.StringUtils;
 
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
@@ -64,7 +66,7 @@ public class ProviderRegisterCenterConf {
       return;
     }
 
-    String host, rootPath, aclUser, aclPwd;
+    String host, rootPath, aclUser, aclPwd, serviceIp, servicePort;
     RegistryCenter registryCenter;
 
     for (String propKey : properties.stringPropertyNames()) {
@@ -79,11 +81,24 @@ public class ProviderRegisterCenterConf {
         rootPath = formatRootPath(properties.getProperty(zkPropKeys[1]));
         aclUser = properties.getProperty(zkPropKeys[2]);
         aclPwd = properties.getProperty(zkPropKeys[3]);
+        serviceIp = properties.getProperty(zkPropKeys[4]);
+        servicePort = properties.getProperty(zkPropKeys[5]);
 
         registryCenter = new RegistryCenter();
         registryCenter.setHost(host);
         registryCenter.setRootPath(rootPath);
         registryCenter.setAclUserPwd(formatUserPwd(aclUser, aclPwd));
+        registryCenter.setServiceIp(serviceIp);
+
+        if (StringUtils.isEmpty(servicePort)) {
+          registryCenter.setServicePort(null);
+        } else {
+          if (MathUtils.isInteger(servicePort)) {
+            registryCenter.setServicePort(Integer.parseInt(servicePort));
+          } else {
+            registryCenter.setServicePort(ERROR_PORT);
+          }
+        }
         extraConfMap.put(propKey, registryCenter);
       }
     }
@@ -98,6 +113,8 @@ public class ProviderRegisterCenterConf {
    * zookeeper.service-register-01.root
    * zookeeper.service-register-01.acl.username
    * zookeeper.service-register-01.acl.password
+   * zookeeper.service-register-01.service.ip
+   * zookeeper.service-register-01.service.port
    *
    * @author yulei
    * @since 2019/9/2
@@ -115,12 +132,16 @@ public class ProviderRegisterCenterConf {
     String rootPathKey = PREFIX + numberStr + SERVICE_EXTRA_RC_ROOTPATH_SUFFIX;
     String aclUserKey = PREFIX + numberStr + SERVICE_EXTRA_RC_ACLUSER_SUFFIX;
     String aclPwdKey = PREFIX + numberStr + SERVICE_EXTRA_RC_ACLPWD_SUFFIX;
+    String serviceIp = PREFIX + numberStr + SERVICE_EXTRA_RC_SERVICEIP_SUFFIX;
+    String servicePort = PREFIX + numberStr + SERVICE_EXTRA_RC_SERVICEPORT_SUFFIX;
 
-    String[] zkPropKeys = new String[4];
+    String[] zkPropKeys = new String[6];
     zkPropKeys[0] = propKey;
     zkPropKeys[1] = rootPathKey;
     zkPropKeys[2] = aclUserKey;
     zkPropKeys[3] = aclPwdKey;
+    zkPropKeys[4] = serviceIp;
+    zkPropKeys[5] = servicePort;
 
     return zkPropKeys;
   }

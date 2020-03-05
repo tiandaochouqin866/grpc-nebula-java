@@ -23,10 +23,7 @@ import com.orientsec.grpc.common.exception.BusinessException;
 import com.orientsec.grpc.common.model.BusinessResult;
 import com.orientsec.grpc.common.model.ConfigFile;
 import com.orientsec.grpc.common.resource.SystemConfig;
-import com.orientsec.grpc.common.util.ConfigFileHelper;
-import com.orientsec.grpc.common.util.IpUtils;
-import com.orientsec.grpc.common.util.ProcessUtils;
-import com.orientsec.grpc.common.util.StringUtils;
+import com.orientsec.grpc.common.util.*;
 import com.orientsec.grpc.provider.common.ProviderConstants;
 import com.orientsec.grpc.provider.core.ProviderServiceRegistryImpl;
 import com.orientsec.grpc.provider.core.ServiceConfigUtils;
@@ -189,6 +186,41 @@ public class RegistryTask {
       }
     }
 
+    // 将所有指定了服务名的分组配置信息添加到providerConfig
+    for (String interfaceName : interfaceNames) {
+      String serviceGroupKey = GlobalConstants.PROVIDER_GROUP + "[" + interfaceName + "]";
+      if (pros.containsKey(serviceGroupKey)) {
+        value = pros.getProperty(serviceGroupKey);
+        if (value != null) {
+          value = value.trim();
+        }
+        String groupConfKey = GlobalConstants.Provider.Key.GROUP + "[" + interfaceName + "]";
+        providerConfig.put(groupConfKey, value);
+      }
+    }
+
+    // 服务自定义ip(key=common.service.ip)
+    String serviceIp = pros.getProperty(ConfigFileHelper.COMMON_KEY_PREFIX + GlobalConstants.CommonKey.SERVICE_IP);
+    if (StringUtils.isNotEmpty(serviceIp)) {
+      if (IpUtils.isValidIPv4(serviceIp)) {
+        providerConfig.put(GlobalConstants.CommonKey.SERVICE_IP, serviceIp);
+      } else {
+        msg = "配置文件[" + GlobalConstants.CONFIG_FILE_PATH + "]中[" + GlobalConstants.CommonKey.SERVICE_IP + "]ip配置格式错误！";
+        return new BusinessResult(false, msg);
+      }
+    }
+
+    // 服务自定义port(key=common.service.port)
+    String portStr = pros.getProperty(ConfigFileHelper.COMMON_KEY_PREFIX + GlobalConstants.CommonKey.SERVICE_PORT);
+    if (StringUtils.isNotEmpty(portStr)) {
+      if (IpUtils.isValidPort(portStr)) {
+        providerConfig.put(GlobalConstants.CommonKey.SERVICE_PORT, Integer.parseInt(portStr));
+      } else {
+        msg = "配置文件[" + GlobalConstants.CONFIG_FILE_PATH + "]中[" + GlobalConstants.CommonKey.SERVICE_PORT + "]端口范围配置错误！";
+        return new BusinessResult(false, msg);
+      }
+    }
+
     // 服务上线时间戳，也即从1970年1月1日（UTC/GMT的午夜）开始所经过的毫秒
     providerConfig.put(GlobalConstants.CommonKey.TIMESTAMP, System.currentTimeMillis());
     // 进程id
@@ -238,8 +270,32 @@ public class RegistryTask {
 
       for (ConfigFile conf : allConf) {
         confKey = conf.getName();
-        value = (providerConfig.containsKey(confKey)) ? (providerConfig.get(confKey)) : (null);
+
+        // 注册时判断服务分组是否配置服务名
+        if (GlobalConstants.Provider.Key.GROUP.equals(confKey)) {
+          /**
+           * 1. 根据serviceName查询配置的group信息
+           * 2. 如果group[serviceName]没有配置，则获取group配置信息
+           */
+          String serviceGroupKey = confKey + "[" + interfaceName + "]";
+          if (providerConfig.containsKey(serviceGroupKey)) {
+            value = providerConfig.get(serviceGroupKey);
+          } else {
+            value = (providerConfig.containsKey(confKey)) ? (providerConfig.get(confKey)) : (null);
+          }
+        } else {
+          value = (providerConfig.containsKey(confKey)) ? (providerConfig.get(confKey)) : (null);
+        }
+
         confItem.put(confKey, value);
+      }
+
+      // 从providerConfig获取service.ip和service.port，添加至confItem
+      if (providerConfig.containsKey(GlobalConstants.CommonKey.SERVICE_IP)) {
+        confItem.put(GlobalConstants.CommonKey.SERVICE_IP, providerConfig.get(GlobalConstants.CommonKey.SERVICE_IP));
+      }
+      if (providerConfig.containsKey(GlobalConstants.CommonKey.SERVICE_PORT)) {
+        confItem.put(GlobalConstants.CommonKey.SERVICE_PORT, providerConfig.get(GlobalConstants.CommonKey.SERVICE_PORT));
       }
 
       servicesConfig.add(confItem);
@@ -253,6 +309,7 @@ public class RegistryTask {
    *
    * @author sxp
    * @since V1.0 2017/3/24
+   * @since 2019/11/28 modify by wlh 新增功能：根据配置文件指定的ip与端口进行服务注册
    */
   private void doRegister() throws Exception {
     List<Map<String, Object>> servicesConfig = caller.getServicesConfig();
@@ -265,25 +322,47 @@ public class RegistryTask {
     Map<String, Object> info;
     Object value;
     String valueOfS, interfaceName, application;
-    int port;
     boolean accessProtected;
 
+    String registryIp;
+    int realPort, registryPort;
+
+    // 真实IP
+    registryIp = caller.getIp();
     provide = new Provider();
 
     for (Map<String, Object> confItem : servicesConfig) {
       // 将url和监听器缓存起来，服务关闭时需要注销监听器
       info = new HashMap<String, Object>();
+      providerInfo = new HashMap<String, String>();
 
       interfaceName = (String) confItem.get(GlobalConstants.Provider.Key.INTERFACE);
       application = (String) confItem.get(GlobalConstants.Provider.Key.APPLICATION);
 
       Preconditions.checkNotNull(interfaceName, "interfaceName");
 
-      port = ((Integer) confItem.get(GlobalConstants.PROVIDER_SERVICE_PORT)).intValue();
+      realPort = ((Integer) confItem.get(GlobalConstants.PROVIDER_SERVICE_PORT)).intValue();
+      registryPort = realPort;
 
       accessProtected = false;// 缺省值为false,不受访问保护
 
-      providerInfo = new HashMap<String, String>();
+      // 记录真实ip与端口
+      providerInfo.put(GlobalConstants.Provider.Key.REAL_IP, caller.getIp());
+      providerInfo.put(GlobalConstants.Provider.Key.REAL_PORT, String.valueOf(realPort));
+
+      String serviceIp = (String) confItem.get(GlobalConstants.CommonKey.SERVICE_IP);
+      Object servicePortObj = confItem.get(GlobalConstants.CommonKey.SERVICE_PORT);
+      if (StringUtils.isNotEmpty(serviceIp)) {
+        registryIp = serviceIp;
+        // common.service.ip不添加到url中
+        confItem.remove(GlobalConstants.CommonKey.SERVICE_IP);
+      }
+      if (servicePortObj != null) {
+        registryPort = (Integer) servicePortObj;
+        // common.service.port不添加到url中
+        confItem.remove(GlobalConstants.CommonKey.SERVICE_PORT);
+      }
+
       for (Map.Entry<String, Object> entry : confItem.entrySet()) {
         if (GlobalConstants.PROVIDER_SERVICE_PORT.equals(entry.getKey())) {
           continue;
@@ -308,7 +387,7 @@ public class RegistryTask {
       providerInfo.put(RegistryConstants.CATEGORY_KEY, RegistryConstants.PROVIDERS_CATEGORY);
       parameters = new HashMap<>(providerInfo);
 
-      URL urlOfService = new URL(RegistryConstants.GRPC_PROTOCOL, caller.getIp(), port, parameters);
+      URL urlOfService = new URL(RegistryConstants.GRPC_PROTOCOL, registryIp, registryPort, parameters);
 
       logger.info("服务端注册：" + urlOfService);
       info.put("url-service", urlOfService);// 缓存数据
@@ -326,8 +405,8 @@ public class RegistryTask {
       providerInfo.put(GlobalConstants.CommonKey.VERSION, RegistryConstants.ANY_VALUE);// 不能限制版本
       parameters = new HashMap<>(providerInfo);
 
-      URL urlOfListener = new URL(RegistryConstants.OVERRIDE_PROTOCOL, caller.getIp(), port, parameters);
-      listener = new ProvidersListener(interfaceName, caller.getIp(), application);
+      URL urlOfListener = new URL(RegistryConstants.OVERRIDE_PROTOCOL, registryIp, registryPort, parameters);
+      listener = new ProvidersListener(interfaceName, registryIp, application);
 
       logger.info("服务端注册监听器");
       info.put("url-listener", urlOfListener);// 缓存数据

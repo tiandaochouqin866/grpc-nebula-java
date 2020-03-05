@@ -63,6 +63,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.SocketAddress;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
@@ -2026,6 +2027,9 @@ public abstract class AbstractTransportTest {
       }
       return listeners.size();
     }
+
+    @Override
+    public Collection<ServerTransport> getTransports() { return null; }
   }
 
   private static class MockServerTransportListener implements ServerTransportListener {

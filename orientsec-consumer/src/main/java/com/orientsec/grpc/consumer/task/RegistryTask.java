@@ -119,11 +119,6 @@ public class RegistryTask extends AbstractTask {
     
     //遍历配置项
     for (Map.Entry<String, Object> entry : confItem.entrySet()) {
-      if (GlobalConstants.CONSUMER_REQUEST_PORT.equals(entry.getKey())
-              || GlobalConstants.Consumer.Key.METHODS.equals(entry.getKey())) {
-        continue;
-      }
-
       value = entry.getValue();
       valueOfS = (value == null) ? (null) : String.valueOf(value);
       if (!StringUtils.isEmpty(valueOfS)) {

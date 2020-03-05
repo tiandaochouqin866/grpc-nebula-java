@@ -3,7 +3,6 @@ package com.orientsec.grpc.consumer;
 import com.orientsec.grpc.common.collect.ConcurrentHashSet;
 import com.orientsec.grpc.common.constant.GlobalConstants;
 import com.orientsec.grpc.common.resource.SystemConfig;
-import com.orientsec.grpc.common.util.DateUtils;
 import com.orientsec.grpc.common.util.PropertiesUtils;
 import com.orientsec.grpc.common.util.StringUtils;
 import com.orientsec.grpc.consumer.internal.ProvidersListener;
@@ -12,6 +11,8 @@ import com.orientsec.grpc.consumer.model.ServiceProvider;
 import io.grpc.Channel;
 import io.grpc.ClientCall;
 import io.grpc.NameResolver;
+import io.grpc.internal.GrpcUtil;
+import io.grpc.internal.SharedResourceHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,6 +20,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -36,15 +39,21 @@ public class ErrorNumberUtil {
 
   private static final String CONSUMERID_PROVIDERID_SEPARATOR = FailoverUtils.CONSUMERID_PROVIDERID_SEPARATOR;
 
+  private static Properties properties = SystemConfig.getProperties();
+
   /**
    * 连续多少次请求出错，自动切换到提供相同服务的新服务器
    */
   private static int switchoverThreshold = initThreshold();
 
+  /** 服务恢复时间 */
+  private static int recoveryMilliseconds = initRecoveryMilliseconds();
+
+  private volatile static ScheduledExecutorService timerService = null;
+
   private static int initThreshold() {
     String key = GlobalConstants.Consumer.Key.SWITCHOVER_THRESHOLD;
     int defaultValue = 5;
-    Properties properties = SystemConfig.getProperties();
 
     int threshold = PropertiesUtils.getValidIntegerValue(properties, key, defaultValue);
     if (threshold <= 0) {
@@ -54,6 +63,20 @@ public class ErrorNumberUtil {
     logger.info(key + " = " + threshold);
 
     return threshold;
+  }
+
+  public static int initRecoveryMilliseconds() {
+    String key = GlobalConstants.Consumer.Key.RECOVERY_MILLISECONDS;
+    int defaultValue = 600000;// 即600秒，即10分钟
+
+    int recoveryTime = PropertiesUtils.getValidIntegerValue(properties, key, defaultValue);
+    if (recoveryTime < 0) {
+      recoveryTime = defaultValue;
+    }
+
+    logger.info(key + " = " + recoveryTime);
+
+    return recoveryTime;
   }
 
   /**
@@ -88,12 +111,13 @@ public class ErrorNumberUtil {
 
 
   /**
-   * 记录失败次数
+   * 记录调用情况
    *
    * @author sxp
    * @since 2018-6-21
+   * @since 2019/12/10 modify by wlh 增加调用成功/失败标识，根据标识判断执行服务操作逻辑
    */
-  public static <ReqT, RespT> void recordFailure(ClientCall<ReqT, RespT> call, Channel channel, String method) {
+  public static <ReqT, RespT> void recordInvokeInfo(ClientCall<ReqT, RespT> call, Channel channel, String method, boolean success, Exception e) {
     if (channel == null) {
       return;
     }
@@ -108,10 +132,12 @@ public class ErrorNumberUtil {
       return;
     }
 
-    String providerId = FailoverUtils.getProviderId(channel);
+    String providerId = FailoverUtils.getProviderId(channel, e);
     if (StringUtils.isEmpty(providerId)) {
       return;
-    } else {
+    }
+
+    if (!success) {
       logger.info("Bad provider is: " + providerId);
     }
 
@@ -130,10 +156,15 @@ public class ErrorNumberUtil {
     lastFailingTime.put(key, currentTimestamp);
 
     // 更新客户端对应服务提供者列表
-    updateFailingProviders(consumerId, providerId);
+    updateFailingProviders(consumerId, providerId, success);
 
-    // 更新失败次数
-    updateFailTimes(channel, nameResolver, consumerId, providerId, lastTimestamp, currentTimestamp, argument, method);
+    if (success) {
+      // 重置失败次数
+      resetFailTimes(nameResolver, consumerId, providerId, argument, method);
+    } else {
+      // 更新失败次数
+      updateFailTimes(channel, nameResolver, consumerId, providerId, lastTimestamp, currentTimestamp, argument, method);
+    }
   }
 
   /**
@@ -141,8 +172,9 @@ public class ErrorNumberUtil {
    *
    * @author sxp
    * @since 2018-6-25
+   * @since 2019/12/10 modify by wlh 增加请求成功判断，成功则将服务从失败列表中移除。
    */
-  private static void updateFailingProviders(String consumerId, String providerId) {
+  private static void updateFailingProviders(String consumerId, String providerId, boolean success) {
     ConcurrentHashSet<String> providers;
 
     if (failingProviders.containsKey(consumerId)) {
@@ -155,12 +187,15 @@ public class ErrorNumberUtil {
       }
     }
 
-    if (!providers.contains(providerId)) {
-      try {
+    try {
+      if (success && providers.contains(providerId)) {
+        // 请求成功，将服务从失败列表中移除
+        providers.remove(providerId);
+      } else if (!success && !providers.contains(providerId)) {
         providers.add(providerId);
-      } catch (Exception e) {
-        logger.info("更新客户端对应服务提供者列表出错", e);
       }
+    } catch (Exception e) {
+      logger.info("更新客户端对应服务提供者列表出错", e);
     }
   }
 
@@ -184,12 +219,6 @@ public class ErrorNumberUtil {
       }
     } else {
       failTimes = requestFailures.get(key);
-
-      // 为了提高性能，不对调用成功的情况进行记录，使用以下策略近似判断连续多次调用失败：
-      // 将当前时间和最后一次出错时间的记录做比较，如果时间间隔大于10分钟，将之前的错误次数清0
-      if (currentTimestamp - lastTimestamp > DateUtils.TEN_MINUTES_IN_MILLIS) {
-        failTimes.set(0);
-      }
     }
 
     failTimes.incrementAndGet();
@@ -242,6 +271,7 @@ public class ErrorNumberUtil {
    *
    * @author sxp
    * @since 2018-6-21
+   * @since 2019/12/11 modify by wlh 10分钟（时间可配）后，将服务重新放回至服务提供列表
    */
   private static void removeCurrentProvider(NameResolver nameResolver, String providerId, String method) {
     Map<String, ServiceProvider> providersForLoadBalance = nameResolver.getProvidersForLoadBalance();
@@ -251,9 +281,14 @@ public class ErrorNumberUtil {
     }
 
     if (providersForLoadBalance.containsKey(providerId)) {
-      logger.info("将当前出错的服务器{}从备选列表中删除", providerId);
+      logger.error("FATAL ERROR : 服务器节点{}连续调用出错{}次，从客户端备选服务器列表中删除", providerId, switchoverThreshold);
       providersForLoadBalance.remove(providerId);
       nameResolver.reCalculateProvidersCountAfterLoadBalance(method);
+
+      if (timerService == null) {
+        timerService = SharedResourceHolder.get(GrpcUtil.TIMER_SERVICE);
+      }
+      timerService.schedule(new RecoveryServerRunnable(nameResolver, providerId, method), recoveryMilliseconds, TimeUnit.MILLISECONDS);
     }
   }
 
@@ -310,4 +345,55 @@ public class ErrorNumberUtil {
     failingProviders.remove(consumerId);// 服务提供者列表
   }
 
+  /**
+   * 将服务重新添加到服务提供者列表中
+   *
+   * @author wlh
+   * @since 2019/12/11
+   */
+  public static void addCurrentProvider(NameResolver nameResolver, String providerId, String method) {
+    Map<String, ServiceProvider> providersForLoadBalance = nameResolver.getProvidersForLoadBalance();
+
+    if (providersForLoadBalance != null && !providersForLoadBalance.containsKey(providerId)) {
+      Map<String, ServiceProvider> allProviders = nameResolver.getAllProviders();
+      ServiceProvider serviceProvider = allProviders.get(providerId);
+
+      if (serviceProvider != null) {
+        logger.info("服务器节点{}被重新添加到客户端备选服务器列表中", providerId);
+        providersForLoadBalance.put(providerId, serviceProvider);
+        nameResolver.reCalculateProvidersCountAfterLoadBalance(method);
+      }
+    }
+  }
+
+  /**
+   * 重置服务失败次数为0
+   *
+   * @author wlh
+   * @since 2019/12/11
+   */
+  public static void resetFailTimes(NameResolver nameResolver, String consumerId, String providerId, Object argument, String method) {
+    String key = consumerId + CONSUMERID_PROVIDERID_SEPARATOR + providerId;
+    if (requestFailures.containsKey(key)) {
+      requestFailures.get(key).set(0);
+    }
+  }
+
+  public static class RecoveryServerRunnable implements Runnable {
+
+    private NameResolver nameResolver;
+    private String providerId;
+    private String method;
+
+    public RecoveryServerRunnable(NameResolver nameResolver, String providerId, String method) {
+      this.nameResolver = nameResolver;
+      this.providerId = providerId;
+      this.method = method;
+    }
+
+    @Override
+    public void run() {
+      addCurrentProvider(nameResolver, providerId, method);
+    }
+  }
 }

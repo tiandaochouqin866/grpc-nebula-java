@@ -24,11 +24,10 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
+import com.orientsec.grpc.common.constant.GlobalConstants;
 import com.orientsec.grpc.common.enums.LoadBalanceMode;
 import com.orientsec.grpc.common.resource.SystemConfig;
-import com.orientsec.grpc.common.util.LoadBalanceUtil;
-import com.orientsec.grpc.common.util.StringUtils;
-import com.orientsec.grpc.common.util.ThreadUtils;
+import com.orientsec.grpc.common.util.*;
 import com.orientsec.grpc.consumer.ConsistentHashArguments;
 import com.orientsec.grpc.consumer.ThreadLocalVariableUtils;
 import com.orientsec.grpc.consumer.core.ConsumerServiceRegistry;
@@ -80,13 +79,7 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -102,6 +95,7 @@ import java.util.regex.Pattern;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
+import static com.orientsec.grpc.common.constant.RegistryConstants.CLIENT_REGISTRY_THREAD_NAME;
 import static io.grpc.ConnectivityState.IDLE;
 import static io.grpc.ConnectivityState.SHUTDOWN;
 import static io.grpc.ConnectivityState.TRANSIENT_FAILURE;
@@ -272,9 +266,42 @@ public final class ManagedChannelImpl extends ManagedChannel implements
   // Temporary false flag that can skip the retry code path.
   private final boolean retryEnabled;
 
+  /** 上一次切换连接时间 */
+  private volatile long lastSwitchConnMillisecond;
+
+  /** 配置的连接切换的间隔时间 */
+  private static final long configSwitchConnMillisecond = initSwitchMillisecond();
+
   // Called from syncContext
   private final ManagedClientTransport.Listener delayedTransportListener =
       new DelayedTransportListener();
+
+  /**
+   * 初始化connection模式切换时间
+   *
+   * @return
+   * @author wlh
+   * @since 2019/12/16
+   */
+  private static long initSwitchMillisecond(){
+    String key = GlobalConstants.Consumer.Key.LOADBALANCE_CONNECTION_SWITCHTIME;
+    Properties properties = SystemConfig.getProperties();
+
+    // 默认缺省10分钟
+    int defaultTime = 10;
+
+    int configTime = PropertiesUtils.getValidIntegerValue(properties, key, defaultTime);
+
+    if (configTime <= 0) {
+      configTime = defaultTime;
+    }
+    // 将配置的分钟数转为毫秒值
+    long resultMillisecond = configTime * 60L * 1000L;
+
+    logger.info(key + " = " + resultMillisecond);
+
+    return resultMillisecond;
+  }
 
   // Must be called from syncContext
   private void maybeShutdownNowSubchannels() {
@@ -412,8 +439,7 @@ public final class ManagedChannelImpl extends ManagedChannel implements
     }
     nameResolver.setRegistry(consumerServiceRegistry);
     nameResolver.setManagedChannel(this);
-    nameResolver = nameResolver.build();
-    nameResolver.registry();
+    new Thread(registryRunnable, CLIENT_REGISTRY_THREAD_NAME).start();
     //----end----超时后对新创建的nameResolver需要增加一个额外的操作----
   }
 
@@ -471,7 +497,7 @@ public final class ManagedChannelImpl extends ManagedChannel implements
   }
 
   private final class ChannelTransportProvider implements ClientTransportProvider {
-    private EquivalentAddressGroup previousAddressGroup = null;
+    private volatile EquivalentAddressGroup previousAddressGroup = null;
 
     @Override
     public ClientTransport get(PickSubchannelArgs args) {
@@ -506,6 +532,19 @@ public final class ManagedChannelImpl extends ManagedChannel implements
         if (LoadBalanceMode.request.name().equals(lbMode)) {
           String method = getMethod(nameResolver);
           nameResolver.resolveServerInfo(argument, method);
+          pickerCopy = subchannelPicker;// 切换服务器会导致subchannelPicker发生变化
+        } else {
+          if (lastSwitchConnMillisecond == 0) {
+            lastSwitchConnMillisecond = System.currentTimeMillis();
+          } else {
+            long currentTimeMillis = System.currentTimeMillis();
+            if (currentTimeMillis - lastSwitchConnMillisecond >= configSwitchConnMillisecond) {
+              lastSwitchConnMillisecond = currentTimeMillis;
+              String method = getMethod(nameResolver);
+              nameResolver.resolveServerInfo(argument, method);
+              pickerCopy = subchannelPicker;// 切换服务器会导致subchannelPicker发生变化
+            }
+          }
         }
 
         //----end----请求负载均衡----
@@ -593,22 +632,6 @@ public final class ManagedChannelImpl extends ManagedChannel implements
 
       //----end------检查服务提供者是否存在----
 
-      //----bedin----根据transport设置当前服务端地址----
-      EquivalentAddressGroup currentAddressGroup = previousAddressGroup;
-
-      EquivalentAddressGroup addressGroup = getCurrentProviderAddressGroup(transport);
-      if (addressGroup != null) {
-        currentAddressGroup = addressGroup;
-      }
-
-      LoadBalancer lb = getLoadBalancer();
-      lb.setAddress(currentAddressGroup);
-
-      if (currentAddressGroup != null) {
-        previousAddressGroup = currentAddressGroup;
-      }
-      //----end------根据transport设置当前服务端地址----
-
       if (transport != null) {
         return transport;
       }
@@ -660,29 +683,6 @@ public final class ManagedChannelImpl extends ManagedChannel implements
       }
 
       return transport;
-    }
-
-    /**
-     * 获得当前的服务端地址
-     *
-     * @author sxp
-     * @since 2019/12/5
-     */
-    private EquivalentAddressGroup getCurrentProviderAddressGroup(ClientTransport transport) {
-      EquivalentAddressGroup addressGroup = null;
-
-      if (transport instanceof InternalSubchannel.CallTracingTransport) {
-        InternalSubchannel.CallTracingTransport callTransport;
-        callTransport = (InternalSubchannel.CallTracingTransport) transport;
-        ConnectionClientTransport connTransport = callTransport.delegate();
-        SocketAddress socketAddress = connTransport.getAddress();
-        if (socketAddress instanceof InetSocketAddress) {
-          InetSocketAddress inetSocketAddress = (InetSocketAddress) socketAddress;
-          addressGroup = new EquivalentAddressGroup(inetSocketAddress);
-        }
-      }
-
-      return addressGroup;
     }
 
     @Override
@@ -762,7 +762,6 @@ public final class ManagedChannelImpl extends ManagedChannel implements
 
     this.nameResolver.setRegistry(consumerServiceRegistry);
     this.nameResolver.setManagedChannel(this);
-    this.nameResolver = this.nameResolver.build();
 
     //----end----注册Consumer信息，设置注册对象----
 
@@ -835,10 +834,18 @@ public final class ManagedChannelImpl extends ManagedChannel implements
 
     //----begin----注册Consumer信息，调用注册方法----
 
-    this.nameResolver.registry();
+    new Thread(registryRunnable, CLIENT_REGISTRY_THREAD_NAME).start();
 
     //----end----功能描述，调用注册方法----
   }
+
+  private Runnable registryRunnable = new Runnable() {
+    @Override
+    public void run() {
+      nameResolver = nameResolver.build();
+      nameResolver.registry();
+    }
+  };
 
   @VisibleForTesting
   static NameResolver getNameResolver(String target, NameResolver.Factory nameResolverFactory,

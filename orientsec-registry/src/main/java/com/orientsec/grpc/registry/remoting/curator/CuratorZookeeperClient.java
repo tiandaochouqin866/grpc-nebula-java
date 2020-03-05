@@ -23,6 +23,7 @@ import com.orientsec.grpc.common.constant.GlobalConstants;
 import com.orientsec.grpc.common.model.RegistryCenter;
 import com.orientsec.grpc.common.resource.AllRegisterCenterConf;
 import com.orientsec.grpc.common.resource.SystemConfig;
+import com.orientsec.grpc.common.util.MathUtils;
 import com.orientsec.grpc.common.util.PropertiesUtils;
 import com.orientsec.grpc.registry.common.URL;
 import com.orientsec.grpc.registry.common.utils.StringUtils;
@@ -34,7 +35,7 @@ import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.framework.api.CuratorWatcher;
 import org.apache.curator.framework.state.ConnectionState;
 import org.apache.curator.framework.state.ConnectionStateListener;
-import org.apache.curator.retry.RetryUntilElapsed;
+import org.apache.curator.retry.RetryNTimes;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -64,13 +65,16 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorWatch
       throw new IllegalStateException("注册中心url的唯一标识不能为空");
     }
 
-    // zk断线重连时，每3秒重连一次，直到连接上zk，或者超过最大重连时间才停止
-    int maxElapsedTimeMs = getMaxElapsedTimeMs();
+    // zk断线重连时，每3秒重连一次，直到连接上zk，或者超过根据设置的天数计算出的重试次数才停止
+    int maxElapsedDays = getMaxElapsedDays();
     int sleepMsBetweenRetries = 3 * 1000;
+
+    // 根据设置的天数计算获得重试次数
+    int retryTime = getRetryTime(maxElapsedDays, sleepMsBetweenRetries);
 
     CuratorFrameworkFactory.Builder builder = CuratorFrameworkFactory.builder()
             .connectString(url.getBackupAddress())
-            .retryPolicy(new RetryUntilElapsed(maxElapsedTimeMs, sleepMsBetweenRetries))
+            .retryPolicy(new RetryNTimes(retryTime, sleepMsBetweenRetries))
             .connectionTimeoutMs(getConnectionTimeoutMs())
             .sessionTimeoutMs(getSessionTimeoutMs());
 
@@ -99,14 +103,18 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorWatch
     client.start();
   }
 
-  private static int getMaxElapsedTimeMs() {
+  /**
+   * @since 2019-11-21 modify by wlh 修改ZK重连时间，缺省由原先1天修改为30天，单位由原先毫秒值修改为天
+   */
+  private static int getMaxElapsedDays() {
     String key = GlobalConstants.REGISTRY_RETRY_TIME;
-    // 缺省值为1天(86400*1000)
-    int defaultValue = 86400000;
+
+    // 缺省值为30天
+    int defaultValue = 30;
     Properties properties = SystemConfig.getProperties();
 
     int value = PropertiesUtils.getValidIntegerValue(properties, key, defaultValue);
-    if (value <= 0 || value < 100) {
+    if (value <= 0) {
       value = defaultValue;
     }
 
@@ -127,6 +135,30 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorWatch
     }
 
     return value;
+  }
+
+  /**
+   * 根据天数，计算重试次数
+   *
+   * @param days
+   * @param sleepMsBetweenRetries
+   * @return
+   * @since 2019-11-21 created by wlh
+   */
+  private static int getRetryTime(int days, int sleepMsBetweenRetries){
+    /**
+     * 1. 根据天数换算毫秒值
+     * 2. 天数毫秒值 / sleepMsBetweenRetries = 重试次数
+     * 3. 计算后的值四舍五入后返回
+     */
+    double daysTimeMillis = (double) days * 24 * 60 * 60 * 1000;
+    int retryTime = (int) MathUtils.round(daysTimeMillis / sleepMsBetweenRetries, 0);
+    if (retryTime > 0) {
+      return retryTime;
+    } else {
+      return Integer.MAX_VALUE;
+    }
+
   }
 
   private static int getSessionTimeoutMs() {
