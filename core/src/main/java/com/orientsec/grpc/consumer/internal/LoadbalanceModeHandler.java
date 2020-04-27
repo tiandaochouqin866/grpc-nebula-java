@@ -109,6 +109,8 @@ public class LoadbalanceModeHandler {
 
     String protocol, urlIp;
 
+    int urlPort;
+
     for (URL url : urls) {
       if (url == null) {
         continue;
@@ -129,6 +131,12 @@ public class LoadbalanceModeHandler {
           continue;
         }
         if (!RegistryConstants.ANYHOST_VALUE.equals(urlIp) && !consumerIP.equals(urlIp)) {
+          continue;
+        }
+
+        // 校验端口号
+        urlPort = url.getPort();
+        if (urlPort != 0) {
           continue;
         }
 

@@ -319,8 +319,15 @@ public class ZookeeperNameResolver extends NameResolver {
       subscribeId = registry.register(params, providersListener, routersListener, configuratorsListener);
       consumerUrl = URL.valueOf(subscribeId);
 
-      hasInitProvidersData = true;
       isConnectionZkSuccess = true;
+
+      logger.info("客户端注册成功");
+      if (!routes.isEmpty()) {
+        logger.info("存在路由规则，需要根据路由规则筛选服务列表");
+        executor.execute(resolutionRunnable);
+      }
+
+      hasInitProvidersData = true;
     }
   }
 
@@ -487,6 +494,8 @@ public class ZookeeperNameResolver extends NameResolver {
       for (Router route : routes) {
         serviceProviders = route.route(serviceProviders, consumerUrl);
       }
+    } else {
+      logger.info("consumerUrl is null");
     }
     serviceProviderMap = serviceProviders;
   }

@@ -30,7 +30,7 @@ import java.security.CodeSource;
  */
 public class OrientsecGrpcVersion {
   private static final Logger logger = LoggerFactory.getLogger(OrientsecGrpcVersion.class);
-  private static final String DEFAULT_VERSION = "1.2.4";// 默认版本号
+  private static final String DEFAULT_VERSION = "1.2.5";// 默认版本号
   /**
    * 版本号
    */

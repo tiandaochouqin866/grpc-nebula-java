@@ -41,11 +41,12 @@ import java.util.Map;
  *
  * 一个configurator对象表示平台对服务的参数的配置调整，通常用户禁止服务provider、调整权重、调整调度算法、服务降级等。
  * url格式如下：
- * override://0.0.0.0/com.foo.BarService?category=configurators
+ * override://0.0.0.0[:1111]/com.foo.BarService?category=configurators
  *          &dynamic=false&application=foo&key=value[&key=value]
  *
  * override 表示数据采用覆盖方式，支持override和absent，可扩展，必填。
  * 0.0.0.0  表示对所有IP地址生效，如果只想覆盖某个IP的数据，请填入具体IP，必填。
+ * 1111     端口，服务端的端口
  * com.foo.BarService 表示只对指定服务生效，必填。
  * category=configurators 表示该数据为动态配置类型，必填。
  * dynamic=false  表示该数据为持久数据，当注册方退出时，数据依然保存在注册中心，必填。
@@ -60,35 +61,21 @@ public class ProvidersListener implements NotifyListener {
   private static final Logger logger = LoggerFactory.getLogger(ProvidersListener.class);
   private String interfaceName;
   private String ip;
+  private int port;
   private String application;
   private RequestsHandler requestsHandler;
   private ConnectionsHandler connectionsHandler;
   private DeprecatedHandler deprecatedHandler;
   private AccessProtectedHandler accessProtectedHandler;
 
-  /**
-   * 禁止不传参数就实例化该类的实例
-   *
-   * @author sxp
-   */
-  private ProvidersListener() {
-  }
-
-  /**
-   * 构造函数
-   *
-   * @param interfaceName 服务接口名称
-   * @param ip 服务提供者的IP
-   * @param application 应用名称
-   * @author sxp
-   */
-  public ProvidersListener(String interfaceName, String ip, String application) {
+  public ProvidersListener(String interfaceName, String ip, String application, int port) {
     Preconditions.checkNotNull(interfaceName, "interfaceName");
     Preconditions.checkNotNull(ip, "ip");
     Preconditions.checkNotNull(application, "application");
     this.interfaceName = interfaceName;
     this.ip = ip;
     this.application = application;
+    this.port = port;
   }
 
   /**
@@ -112,7 +99,7 @@ public class ProvidersListener implements NotifyListener {
      * 对服务并发请求数default.requests进行处理
      */
     if (requestsHandler == null) {
-      requestsHandler = new RequestsHandler(interfaceName, ip);
+      requestsHandler = new RequestsHandler(interfaceName, ip, port);
     }
     requestsHandler.notify(filteredUrls);
 
@@ -120,7 +107,7 @@ public class ProvidersListener implements NotifyListener {
      * 对服务连接数default.connections进行处理
      */
     if (connectionsHandler == null) {
-      connectionsHandler = new ConnectionsHandler(interfaceName, ip);
+      connectionsHandler = new ConnectionsHandler(interfaceName, ip, port);
     }
     connectionsHandler.notify(filteredUrls);
 
@@ -128,7 +115,7 @@ public class ProvidersListener implements NotifyListener {
      * 对服务是否过期deprecated进行处理
      */
     if (deprecatedHandler == null) {
-      deprecatedHandler = new DeprecatedHandler(interfaceName, ip);
+      deprecatedHandler = new DeprecatedHandler(interfaceName, ip, port);
     }
     deprecatedHandler.notify(filteredUrls);
 
@@ -136,7 +123,7 @@ public class ProvidersListener implements NotifyListener {
      * 对服务是否处于访问保护状态进行处理
      */
     if (accessProtectedHandler == null) {
-      accessProtectedHandler = new AccessProtectedHandler(interfaceName, ip);
+      accessProtectedHandler = new AccessProtectedHandler(interfaceName, ip, port);
     }
     accessProtectedHandler.notify(filteredUrls);
   }

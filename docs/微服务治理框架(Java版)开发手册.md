@@ -112,7 +112,7 @@ grpc是一个多语言、高性能、开源的通用远程过程调用(RPC)框�
 依赖信息如下：
 
 	<properties>
-        <orientsec.grpc.version>1.2.4</orientsec.grpc.version>               
+        <orientsec.grpc.version>1.2.5</orientsec.grpc.version>               
     </properties>
 
 	 <dependencies>
@@ -138,7 +138,7 @@ grpc是一个多语言、高性能、开源的通用远程过程调用(RPC)框�
 
 - `groupId` 从 `io.grpc` 修改为 `com.orientsec.grpc`
 - `artifactId` 在原来的基础上增加了前缀 `orientsec-`
-- `version` 使用 `${orientsec.grpc.version}` ( 即 `1.2.4` )
+- `version` 使用 `${orientsec.grpc.version}` ( 即 `1.2.5` )
 
 
 ### 2. 框架配置文件dfzq-grpc-config.properties

@@ -67,9 +67,11 @@ public class ProviderGroupHandler {
     String serviceName = zkNameResolver.getServiceName();
     Objects.requireNonNull(serviceName);
     Map<String, ServiceProvider> allProviders = zkNameResolver.getAllProviders();
-    Set<String> providerIpSet = new HashSet<>(MapUtils.capacity(allProviders.size()));
 
-    String providerIp, groupInitValue;
+    Set<String> providerIdSet = new HashSet<>(MapUtils.capacity(allProviders.size()));
+    Set<Integer> providerPortSet = new HashSet<>(MapUtils.capacity(allProviders.size()));
+
+    String providerIp, groupInitValue, id;
     int port;
     ServiceProvider provider;
     boolean isUpdate = false;
@@ -81,7 +83,11 @@ public class ProviderGroupHandler {
       providerIp = provider.getHost();
       port = provider.getPort();
 
-      providerIpSet.add(providerIp);
+      id = providerIp + ":" + port;
+      providerIdSet.add(id);
+
+      providerPortSet.add(port);
+
       Object groupObj = ProvidersConfigUtils.getInitProperty(serviceName, providerIp, port, KEY);
       if (groupObj == null) {
         groupInitValue = (provider.getGroup() == null ? "" : provider.getGroup());
@@ -90,7 +96,7 @@ public class ProviderGroupHandler {
       }
     }
 
-    List<URL> filteredUrls = filterUrls(urls, providerIpSet);
+    List<URL> filteredUrls = filterUrls(urls, providerIdSet, providerPortSet);
 
     boolean isEmpty = false;
     if (filteredUrls.isEmpty()) {
@@ -99,24 +105,29 @@ public class ProviderGroupHandler {
       isEmpty = true;
     }
 
-    Set<String> urlIpSet = new HashSet<>(MapUtils.capacity(filteredUrls.size()));
+    Set<String> urlIdSet = new HashSet<>(MapUtils.capacity(filteredUrls.size()));
 
     String ip, providerKey, providerGroup, oldGroup;
     boolean hasAnyHost = false;
+    int urlPort;
 
     if (!isEmpty) {
       for (URL url : filteredUrls) {
         ip = url.getIp();
+        urlPort = url.getPort();
         if (RegistryConstants.ANYHOST_VALUE.equals(ip)) {
           hasAnyHost = true;
         }
-        urlIpSet.add(ip);
+
+        id = ip + ":" + urlPort;
+        urlIdSet.add(id);
+
         for (Map.Entry<String, ServiceProvider> entry : allProviders.entrySet()) {
           provider = entry.getValue();
           providerIp = provider.getHost();
           port = provider.getPort();
 
-          if (RegistryConstants.ANYHOST_VALUE.equals(ip) || ip.equals(providerIp)) {
+          if (urlPort == port && (RegistryConstants.ANYHOST_VALUE.equals(ip) || ip.equals(providerIp))) {
             providerGroup = url.getParameter(KEY);
             if (providerGroup == null) {
               providerGroup = "";
@@ -157,8 +168,11 @@ public class ProviderGroupHandler {
       for (Map.Entry<String, ServiceProvider> entry : allProviders.entrySet()) {
         provider = entry.getValue();
         providerIp = provider.getHost();
+        port = provider.getPort();
 
-        if (urlIpSet.contains(providerIp)) {
+        id = providerIp + ":" + port;
+
+        if (urlIdSet.contains(id)) {
           continue;
         }
         isRestore = restoreDefaultValue(serviceName, provider);
@@ -184,10 +198,11 @@ public class ProviderGroupHandler {
 
   }
 
-  private List<URL> filterUrls(List<URL> urls, Set<String> providerIpSet) {
+  private List<URL> filterUrls(List<URL> urls, Set<String> providerIdSet, Set<Integer> providerPortSet) {
     List<URL> filteredUrls = new ArrayList<>(urls.size());
 
-    String protocol, urlIp;
+    String protocol, urlIp, id;
+    int urlPort;
 
     for (URL url : urls) {
       if (url == null) {
@@ -205,12 +220,19 @@ public class ProviderGroupHandler {
 
         // 检验IP地址
         urlIp = url.getIp();
+        urlPort = url.getPort();
+        id = urlIp + ":" + urlPort;
+
         if (StringUtils.isEmpty(urlIp)) {
           continue;
         }
-        if (!RegistryConstants.ANYHOST_VALUE.equals(urlIp) && !providerIpSet.contains(urlIp)) {
+        if (!RegistryConstants.ANYHOST_VALUE.equals(urlIp) && !providerIdSet.contains(id)) {
           continue;
         }
+        if (RegistryConstants.ANYHOST_VALUE.equals(urlIp) && !providerPortSet.contains(urlPort)) {
+          continue;
+        }
+
         // 是否为当前类处理的参数值
         if (!url.getParameters().containsKey(KEY)) {
           continue;

@@ -38,9 +38,9 @@ public class HelloWorldClient {
   private final GreeterGrpc.GreeterBlockingStub blockingStub;
 
   public HelloWorldClient() {
-    //this(ManagedChannelBuilder.forAddress(host, port)
+    //channel = ManagedChannelBuilder.forAddress(host, port)
     //    .usePlaintext()
-    //    .build());
+    //    .build();
 
     String target = "zookeeper:///" + GreeterGrpc.SERVICE_NAME;
 

@@ -396,7 +396,7 @@ public class RegistryTask {
       // 如果该服务处于访问保护状态，在注册服务以后，同时初始化写入一条 “rule==> host != ${provider.host.ip}” 的
       // 路由规则（临时节点），表示禁止所有客户端访问当前注册的服务
       if (accessProtected) {
-        URL urlOfRouter = getAcessProtectdUrl(interfaceName);
+        URL urlOfRouter = getAcessProtectdUrl(interfaceName, registryIp, registryPort);
         provide.registerService(urlOfRouter);
       }
 
@@ -406,7 +406,7 @@ public class RegistryTask {
       parameters = new HashMap<>(providerInfo);
 
       URL urlOfListener = new URL(RegistryConstants.OVERRIDE_PROTOCOL, registryIp, registryPort, parameters);
-      listener = new ProvidersListener(interfaceName, registryIp, application);
+      listener = new ProvidersListener(interfaceName, registryIp, application, registryPort);
 
       logger.info("服务端注册监听器");
       info.put("url-listener", urlOfListener);// 缓存数据
@@ -423,15 +423,14 @@ public class RegistryTask {
    * @author sxp
    * @since 2018/12/1
    */
-  public static URL getAcessProtectdUrl(String interfaceName) {
+  public static URL getAcessProtectdUrl(String interfaceName, String ip, int port) {
     // 如果该服务处于访问保护状态，在注册服务以后，同时初始化写入一条 “rule==> host != ${provider.host.ip}” 的
     // 路由规则（临时节点），表示禁止所有客户端访问当前注册的服务
 
     // route://0.0.0.0/com.foo.BarService?category=routers&dynamic=true&force=true&name=my-rule-001
     // &priority=0&router=condition&rule==> host != 172.22.3.91&runtime=false
 
-    String ip = IpUtils.getIP4WithPriority();
-    String name = "access-protected-rule-" + ip;
+    String name = "access-protected-rule-" + ip + "-" + port;
     String rule = "host = * => host != " + ip;
 
     Map<String, String> parameters = new HashMap<String, String>();

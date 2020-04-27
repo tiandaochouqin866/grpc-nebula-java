@@ -67,9 +67,11 @@ public class ProviderMasterHandler {
     String serviceName = zkNameResolver.getServiceName();
     Objects.requireNonNull(serviceName);
     Map<String, ServiceProvider> allProviders = zkNameResolver.getAllProviders();
-    Set<String> providerIpSet = new HashSet<>(MapUtils.capacity(allProviders.size()));
 
-    String providerIp;
+    Set<String> providerIdSet = new HashSet<>(MapUtils.capacity(allProviders.size()));
+    Set<Integer> providerPortSet = new HashSet<>(MapUtils.capacity(allProviders.size()));
+
+    String providerIp, id;
     int port;
     boolean master;
     ServiceProvider provider;
@@ -82,7 +84,10 @@ public class ProviderMasterHandler {
       providerIp = provider.getHost();
       port = provider.getPort();
 
-      providerIpSet.add(providerIp);
+      id = providerIp + ":" + port;
+      providerIdSet.add(id);
+
+      providerPortSet.add(port);
 
       Object masterObj = ProvidersConfigUtils.getInitProperty(serviceName, providerIp, port, KEY);
       if (masterObj == null) {
@@ -92,7 +97,7 @@ public class ProviderMasterHandler {
       }
     }
 
-    List<URL> filteredUrls = filterUrls(urls, providerIpSet);
+    List<URL> filteredUrls = filterUrls(urls, providerIdSet, providerPortSet);
 
     boolean isEmpty = false;
     if (filteredUrls.isEmpty()) {
@@ -101,25 +106,30 @@ public class ProviderMasterHandler {
       isEmpty = true;
     }
 
-    Set<String> urlIpSet = new HashSet<>(MapUtils.capacity(filteredUrls.size()));
+    Set<String> urlIdSet = new HashSet<>(MapUtils.capacity(filteredUrls.size()));
 
     String ip, masterStr, providerKey;
     boolean masterTemp;
     boolean hasAnyHost = false;
+    int urlPort;
 
     if (!isEmpty) {
       for (URL url : filteredUrls) {
         ip = url.getIp();
+        urlPort = url.getPort();
         if (RegistryConstants.ANYHOST_VALUE.equals(ip)) {
           hasAnyHost = true;
         }
-        urlIpSet.add(ip);
+
+        id = ip + ":" + urlPort;
+        urlIdSet.add(id);
+
         for (Map.Entry<String, ServiceProvider> entry : allProviders.entrySet()) {
           provider = entry.getValue();
           providerIp = provider.getHost();
           port = provider.getPort();
 
-          if (RegistryConstants.ANYHOST_VALUE.equals(ip) || ip.equals(providerIp)) {
+          if (urlPort == port && (RegistryConstants.ANYHOST_VALUE.equals(ip) || ip.equals(providerIp))) {
             masterStr = url.getParameter(KEY);
             if (StringUtils.isEmpty(masterStr)) {
               masterStr = String.valueOf(GlobalConstants.Provider.DEFAULT_MASTER);
@@ -157,8 +167,10 @@ public class ProviderMasterHandler {
       for (Map.Entry<String, ServiceProvider> entry : allProviders.entrySet()) {
         provider = entry.getValue();
         providerIp = provider.getHost();
+        port = provider.getPort();
 
-        if (urlIpSet.contains(providerIp)) {
+        id = providerIp + ":" + port;
+        if (urlIdSet.contains(id)) {
           continue;
         }
         isRestore = restoreDefaultValue(serviceName, provider);
@@ -190,10 +202,11 @@ public class ProviderMasterHandler {
    *
    * @return 不需要恢复数据时返回false，数据恢复成功返回true
    */
-  private List<URL> filterUrls(List<URL> urls, Set<String> providerIpSet) {
+  private List<URL> filterUrls(List<URL> urls, Set<String> providerIdSet, Set<Integer> providerPortSet) {
     List<URL> filteredUrls = new ArrayList<>(urls.size());
 
-    String protocol, urlIp;
+    String protocol, urlIp, id;
+    int urlPort;
 
     for (URL url : urls) {
       if (url == null) {
@@ -211,10 +224,16 @@ public class ProviderMasterHandler {
 
         // 检验IP地址
         urlIp = url.getIp();
+        urlPort = url.getPort();
+        id = urlIp + ":" + urlPort;
+
         if (StringUtils.isEmpty(urlIp)) {
           continue;
         }
-        if (!RegistryConstants.ANYHOST_VALUE.equals(urlIp) && !providerIpSet.contains(urlIp)) {
+        if (!RegistryConstants.ANYHOST_VALUE.equals(urlIp) && !providerIdSet.contains(id)) {
+          continue;
+        }
+        if (RegistryConstants.ANYHOST_VALUE.equals(urlIp) && !providerPortSet.contains(urlPort)) {
           continue;
         }
 

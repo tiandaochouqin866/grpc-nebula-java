@@ -18,6 +18,7 @@ package com.orientsec.grpc.provider.watch;
 
 import com.google.common.base.Preconditions;
 import com.orientsec.grpc.common.constant.GlobalConstants;
+import com.orientsec.grpc.common.constant.RegistryConstants;
 import com.orientsec.grpc.common.util.StringUtils;
 import com.orientsec.grpc.provider.core.ServiceConfigUtils;
 import com.orientsec.grpc.provider.task.RegistryTask;
@@ -57,28 +58,15 @@ public class AccessProtectedHandler {
   private static final Logger logger = LoggerFactory.getLogger(AccessProtectedHandler.class);
   private String interfaceName;
   private String ip;
+  private int port;
   private boolean isLastUpdated = false;// 上一次调用notify是否更新过数据
 
-  /**
-   * 禁止不传参数就实例化该类的实例
-   *
-   * @author sxp
-   */
-  private AccessProtectedHandler() {
-  }
-
-  /**
-   * 构造函数
-   *
-   * @param interfaceName 服务接口名称
-   * @param ip 服务提供者的IP
-   * @author sxp
-   */
-  public AccessProtectedHandler(String interfaceName, String ip) {
+  public AccessProtectedHandler(String interfaceName, String ip, int port) {
     Preconditions.checkNotNull(interfaceName, "interfaceName");
     Preconditions.checkNotNull(ip, "ip");
     this.interfaceName = interfaceName;
     this.ip = ip;
+    this.port = port;
   }
 
   /**
@@ -94,6 +82,9 @@ public class AccessProtectedHandler {
     boolean accessProtected = false, needUpdate = false;
     boolean isEmptyProtocol = false;
 
+    String urlIp;
+    int urlPort;
+
     // 向注册中心订阅监听器成功后，如果监听节点下没有子节点，会立即返回一个协议为empty的URL
     Objects.requireNonNull(urls);
     if (urls.size() == 1 && Constants.EMPTY_PROTOCOL.equals(urls.get(0).getProtocol())) {
@@ -102,6 +93,20 @@ public class AccessProtectedHandler {
 
     if (!isEmptyProtocol) {
       for (URL url : urls) {
+
+        urlIp = url.getIp();
+        if (StringUtils.isEmpty(urlIp)) {
+          continue;
+        }
+        if (!RegistryConstants.ANYHOST_VALUE.equals(urlIp) && !ip.equals(urlIp)) {
+          continue;
+        }
+
+        urlPort = url.getPort();
+        if (port != urlPort) {
+          continue;
+        }
+
         parameters = url.getParameters();
         if (!parameters.containsKey(GlobalConstants.Provider.Key.ACCESS_PROTECTED)) {
           continue;
@@ -165,7 +170,7 @@ public class AccessProtectedHandler {
           return;
         }
 
-        URL url = RegistryTask.getAcessProtectdUrl(interfaceName);
+        URL url = RegistryTask.getAcessProtectdUrl(interfaceName, ip, port);
 
         if (accessProtected) {
           // 写入禁止所有客户端访问当前注册的服务的路由规则

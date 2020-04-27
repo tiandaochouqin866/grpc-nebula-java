@@ -68,6 +68,11 @@ final class PickFirstLoadBalancer extends LoadBalancer {
     EquivalentAddressGroup currentAddressGroup = servers.get(0);
     Subchannel subchannel = subchannels.get(currentAddressGroup);
 
+    // 如果含有多个服务端地址，只考虑第一个
+    if (servers.size() > 1) {
+      servers = servers.subList(0, 1);
+    }
+
     if (subchannel == null) {
       subchannel = helper.createSubchannel(servers, Attributes.EMPTY);
       Subchannel oldValue = subchannels.putIfAbsent(currentAddressGroup, subchannel);

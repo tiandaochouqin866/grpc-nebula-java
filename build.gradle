@@ -58,7 +58,7 @@ subprojects {
     //version = "1.17.2" // CURRENT_GRPC_VERSION
 
     group = "com.orientsec.grpc"
-    version = "1.2.4"  // 开发和测试时使用 SNAPSHOT 版本号
+    version = "1.2.5"  // 开发和测试时使用 SNAPSHOT 版本号
 
     sourceCompatibility = 1.7
     targetCompatibility = 1.7

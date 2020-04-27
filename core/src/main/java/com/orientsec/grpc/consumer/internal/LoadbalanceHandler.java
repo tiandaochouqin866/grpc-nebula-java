@@ -69,7 +69,7 @@ public class LoadbalanceHandler {
 
     Map<String, GlobalConstants.LB_STRATEGY> oldLoadBlanceStrategyMap = zkNameResolver.getLoadBlanceStrategyMap();
     Map<String, GlobalConstants.LB_STRATEGY> newLoadBlanceStrategyMap = new HashMap<>();
-    if (oldLoadBlanceStrategyMap != null&& oldLoadBlanceStrategyMap.containsKey(EMPTY_METHOD)) {
+    if (oldLoadBlanceStrategyMap != null && oldLoadBlanceStrategyMap.containsKey(EMPTY_METHOD)) {
       newLoadBlanceStrategyMap.put(EMPTY_METHOD, oldLoadBlanceStrategyMap.get(EMPTY_METHOD));
     }
 
@@ -109,6 +109,7 @@ public class LoadbalanceHandler {
     String consumerIP = zkNameResolver.getConsumerIP();
 
     String protocol, urlIp;
+    int urlPort;
 
     for (URL url : urls) {
       if (url == null) {
@@ -130,6 +131,12 @@ public class LoadbalanceHandler {
           continue;
         }
         if (!RegistryConstants.ANYHOST_VALUE.equals(urlIp) && !consumerIP.equals(urlIp)) {
+          continue;
+        }
+
+        // 校验端口号
+        urlPort = url.getPort();
+        if (urlPort != 0) {
           continue;
         }
 

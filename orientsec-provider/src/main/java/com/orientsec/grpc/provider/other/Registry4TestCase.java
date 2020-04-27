@@ -311,7 +311,7 @@ public class Registry4TestCase implements ProviderServiceRegistry {
       parameters = new HashMap<String, String>(providerInfo);
 
       url = new URL(RegistryConstants.OVERRIDE_PROTOCOL, ip, port, parameters);
-      listener = new ProvidersListener(interfaceName, ip, application);
+      listener = new ProvidersListener(interfaceName, ip, application, port);
       provide.subscribe(url, listener);
 
       /**

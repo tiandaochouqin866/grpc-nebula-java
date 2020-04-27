@@ -66,9 +66,10 @@ public class ProviderWeightHandler {
 
     Map<String, ServiceProvider> allProviders = zkNameResolver.getAllProviders();
 
-    Set<String> providerIpSet = new HashSet<>(MapUtils.capacity(allProviders.size()));
+    Set<String> providerIdSet = new HashSet<>(MapUtils.capacity(allProviders.size()));
+    Set<Integer> providerPortSet = new HashSet<>(MapUtils.capacity(allProviders.size()));
 
-    String providerIp;
+    String providerIp, id;
     int port, weight;
     Object weightObj;
     ServiceProvider provider;
@@ -79,7 +80,10 @@ public class ProviderWeightHandler {
       providerIp = provider.getHost();
       port = provider.getPort();
 
-      providerIpSet.add(providerIp);
+      id = providerIp + ":" + port;
+      providerIdSet.add(id);
+
+      providerPortSet.add(port);
 
       weightObj = ProvidersConfigUtils.getInitProperty(serviceName, providerIp, port, KEY);
       if (weightObj == null) {
@@ -88,7 +92,7 @@ public class ProviderWeightHandler {
       }
     }
 
-    List<URL> filteredUrls = filterUrls(urls, providerIpSet);
+    List<URL> filteredUrls = filterUrls(urls, providerIdSet, providerPortSet);
 
     boolean isEmpty = false;
     if (filteredUrls.isEmpty()) {
@@ -97,27 +101,29 @@ public class ProviderWeightHandler {
       isEmpty = true;
     }
 
-    Set<String> urlIpSet = new HashSet<>(MapUtils.capacity(filteredUrls.size()));
+    Set<String> urlIdSet = new HashSet<>(MapUtils.capacity(filteredUrls.size()));
 
     String ip, weightStr, providerKey;
-    int newWeight;
+    int newWeight, urlPort;
     boolean hasAnyHost = false;
 
     if (!isEmpty) {
       for (URL url : filteredUrls) {
         ip = url.getIp();
+        urlPort = url.getPort();
         if (RegistryConstants.ANYHOST_VALUE.equals(ip)) {
           hasAnyHost = true;
         }
 
-        urlIpSet.add(ip);
+        id = ip + ":" + urlPort;
+        urlIdSet.add(id);
 
         for (Map.Entry<String, ServiceProvider> entry : allProviders.entrySet()) {
           provider = entry.getValue();
           providerIp = provider.getHost();
           port = provider.getPort();
 
-          if (RegistryConstants.ANYHOST_VALUE.equals(ip) || ip.equals(providerIp)) {
+          if (urlPort == port && (RegistryConstants.ANYHOST_VALUE.equals(ip) || ip.equals(providerIp))) {
             weightStr = url.getParameter(KEY);
             if (StringUtils.isEmpty(weightStr) || !MathUtils.isInteger(weightStr)) {
               continue;
@@ -151,8 +157,10 @@ public class ProviderWeightHandler {
       for (Map.Entry<String, ServiceProvider> entry : allProviders.entrySet()) {
         provider = entry.getValue();
         providerIp = provider.getHost();
+        port = provider.getPort();
 
-        if (urlIpSet.contains(providerIp)) {
+        id = providerIp + ":" + port;
+        if (urlIdSet.contains(id)) {
           continue;
         }
 
@@ -186,10 +194,11 @@ public class ProviderWeightHandler {
     }
   }
 
-  private List<URL> filterUrls(List<URL> urls, Set<String> providerIpSet) {
+  private List<URL> filterUrls(List<URL> urls, Set<String> providerIdSet, Set<Integer> providerPortSet) {
     List<URL> filteredUrls = new ArrayList<>(urls.size());
 
-    String protocol, urlIp;
+    String protocol, urlIp, id;
+    int urlPort;
 
     for (URL url : urls) {
       if (url == null) {
@@ -207,10 +216,16 @@ public class ProviderWeightHandler {
 
         // 检验IP地址
         urlIp = url.getIp();
+        urlPort = url.getPort();
+        id = urlIp + ":" + urlPort;
+
         if (StringUtils.isEmpty(urlIp)) {
           continue;
         }
-        if (!RegistryConstants.ANYHOST_VALUE.equals(urlIp) && !providerIpSet.contains(urlIp)) {
+        if (!RegistryConstants.ANYHOST_VALUE.equals(urlIp) && !providerIdSet.contains(id)) {
+          continue;
+        }
+        if (RegistryConstants.ANYHOST_VALUE.equals(urlIp) && !providerPortSet.contains(urlPort)) {
           continue;
         }
 
